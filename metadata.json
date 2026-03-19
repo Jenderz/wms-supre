@@ -1,0 +1,5 @@
+{
+  "name": "SUPRE WMS",
+  "description": "Warehouse Management System for SUPRE suite. Features catalog, multi-branch infrastructure, and role-based operational flows.",
+  "requestFramePermissions": []
+}

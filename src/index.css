@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Asegurar que el contenido impreso sea legible */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  /* Ajustes para tablas */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+  
+  th, td {
+    border: 1px solid #ccc !important;
+    padding: 8px !important;
+  }
+}
