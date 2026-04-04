@@ -1,5 +1,5 @@
-import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, 
@@ -11,8 +11,7 @@ import {
   Trash2,
   Zap,
   Tags,
-  ArrowRightLeft,
-  BarChart3,
+  Activity,
   Settings as SettingsIcon
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
@@ -27,40 +26,52 @@ interface SidebarProps {
   setIsOpen: (isOpen: boolean) => void;
 }
 
+type NavItem = {
+  name: string;
+  path: string;
+  icon: any;
+  roles: string[];
+  permission: string | null;
+};
+
+type NavSection = {
+  title: string;
+  items: NavItem[];
+};
+
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   if (!user) return null;
 
-  const navSections = [
+  const navSections: NavSection[] = [
     {
       title: 'Análisis',
       items: [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'] },
-        { name: 'Estadísticas', path: '/statistics', icon: BarChart3, roles: ['ADMIN'] },
+        { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'], permission: null },
+        { name: 'Historial de Movimientos', path: '/movements', icon: Activity, roles: ['ADMIN'], permission: 'VIEW_STOCK_MOVEMENTS' },
       ]
     },
     {
       title: 'Operaciones',
       items: [
-        { name: 'Abastecimiento', path: '/purchasing', icon: ShoppingCart, roles: ['ADMIN', 'COMPRAS'] },
-        { name: 'Depósito (Recepción)', path: '/warehouse', icon: Warehouse, roles: ['ADMIN', 'DEPOSITO'] },
-        { name: 'Desincorporación', path: '/disincorporation', icon: Trash2, roles: ['ADMIN', 'DESINCORPORACION'] },
+        { name: 'Abastecimiento', path: '/purchasing', icon: ShoppingCart, roles: ['ADMIN', 'COMPRAS'], permission: null },
+        { name: 'Depósito (Recepción)', path: '/warehouse', icon: Warehouse, roles: ['ADMIN', 'DEPOSITO'], permission: null },
+        { name: 'Desincorporación', path: '/disincorporation', icon: Trash2, roles: ['ADMIN', 'DESINCORPORACION'], permission: null },
       ]
     },
     {
       title: 'Catálogos',
       items: [
-        { name: 'Productos', path: '/catalog', icon: Package, roles: ['ADMIN', 'COMPRAS'] },
-        { name: 'Categorías', path: '/categories', icon: Tags, roles: ['ADMIN', 'COMPRAS'] },
-        { name: 'Tiendas', path: '/infrastructure', icon: Building2, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'] },
+        { name: 'Productos', path: '/catalog', icon: Package, roles: ['ADMIN', 'COMPRAS'], permission: null },
+        { name: 'Tiendas', path: '/infrastructure', icon: Building2, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'], permission: null },
       ]
     },
     {
       title: 'Sistema',
       items: [
-        { name: 'Configuración', path: '/settings', icon: SettingsIcon, roles: ['ADMIN'] },
+        { name: 'Configuración', path: '/settings', icon: SettingsIcon, roles: ['ADMIN'], permission: null },
       ]
     }
   ];
@@ -91,7 +102,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
 
       <nav className="flex-1 px-4 space-y-6 overflow-y-auto pb-6">
         {navSections.map((section) => {
-          const allowedItems = section.items.filter(item => item.roles.includes(user.role));
+          const allowedItems = section.items.filter(item => {
+            // Si el ítem requiere un permiso específico, verificar:
+            // - ADMIN siempre puede verlo
+            // - Otros roles lo ven solo si tienen el permiso en su lista
+            if (item.permission) {
+              return user.role === 'ADMIN' || 
+                (item.roles.includes(user.role) && (user.permissions ?? []).includes(item.permission));
+            }
+            return item.roles.includes(user.role);
+          });
           if (allowedItems.length === 0) return null;
 
           return (
@@ -110,7 +130,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
                         'flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200',
                         isActive 
                           ? 'bg-blue-50 text-blue-700' 
-                          : 'hover:bg-slate-50 hover:text-slate-900'
+                          : 'hover:bg-slate-50 hover:text-slate-900 text-slate-700'
                       )
                     }
                   >

@@ -102,7 +102,9 @@ class PickingLot
 
     public function delete(int $id): void
     {
-        $this->db->prepare("DELETE FROM picking_lots WHERE id = :id AND status = 'DRAFT'")->execute([':id' => $id]);
+        // El controlador ya valida el rol antes de llegar aquí.
+        // Solo se bloquea CONFORMED (nunca debe eliminarse).
+        $this->db->prepare("DELETE FROM picking_lots WHERE id = :id AND status IN ('DRAFT', 'PENDING')")->execute([':id' => $id]);
     }
 
     private function getItems(int $lotId): array
@@ -111,6 +113,7 @@ class PickingLot
             "SELECT id, product_id as productId, quantity_to_enter as quantityToEnter,
                     number_of_packages as numberOfPackages, packages_config as packagesConfig,
                     package_dim_height as height, package_dim_width as width, package_dim_depth as depth,
+                    package_description as packageDescription,
                     min_stock_alert as minStockAlert
              FROM picking_lot_items WHERE picking_lot_id = :lid"
         );
@@ -130,20 +133,22 @@ class PickingLot
         if (empty($items)) return;
         $stmt = $this->db->prepare(
             "INSERT INTO picking_lot_items (picking_lot_id, product_id, quantity_to_enter, number_of_packages,
-             packages_config, package_dim_height, package_dim_width, package_dim_depth, min_stock_alert)
-             VALUES (:lid, :pid, :qty, :nop, :cfg, :ph, :pw, :pd, :msa)"
+             packages_config, package_dim_height, package_dim_width, package_dim_depth,
+             package_description, min_stock_alert)
+             VALUES (:lid, :pid, :qty, :nop, :cfg, :ph, :pw, :pd, :pdesc, :msa)"
         );
         foreach ($items as $item) {
             $stmt->execute([
-                ':lid' => $lotId,
-                ':pid' => $item['productId'],
-                ':qty' => $item['quantityToEnter'],
-                ':nop' => $item['numberOfPackages'],
-                ':cfg' => json_encode($item['packagesConfig'] ?? []),
-                ':ph'  => $item['packageDimensions']['height'] ?? null,
-                ':pw'  => $item['packageDimensions']['width'] ?? null,
-                ':pd'  => $item['packageDimensions']['depth'] ?? null,
-                ':msa' => (int) ($item['minStockAlert'] ?? false),
+                ':lid'   => $lotId,
+                ':pid'   => $item['productId'],
+                ':qty'   => $item['quantityToEnter'],
+                ':nop'   => $item['numberOfPackages'],
+                ':cfg'   => json_encode($item['packagesConfig'] ?? []),
+                ':ph'    => $item['packageDimensions']['height'] ?? null,
+                ':pw'    => $item['packageDimensions']['width']  ?? null,
+                ':pd'    => $item['packageDimensions']['depth']  ?? null,
+                ':pdesc' => $item['packageDescription'] ?? null,  // Texto libre, puede ser null
+                ':msa'   => (int) ($item['minStockAlert'] ?? 0),
             ]);
         }
     }

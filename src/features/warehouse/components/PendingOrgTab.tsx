@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Stock } from '../../../types';
-import { Package, MapPin, CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, Tag, Trash2, ArrowLeft } from 'lucide-react';
+import { Stock, Store } from '../../../types';
+import { Package, MapPin, CheckCircle2, AlertTriangle, Tag, Trash2, ArrowLeft, Building2 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../../components/ui/Table';
 import { Badge } from '../../../components/ui/Badge';
@@ -8,8 +8,10 @@ import { Input } from '../../../components/ui/Input';
 
 interface PendingOrgTabProps {
   stock: Stock[];
+  stores: Store[];
   getProduct: (id: string) => any;
   getCategory: (id: string) => any;
+  getStore: (id: string) => any;
   getStoreLocations: (storeId: string) => any[];
   updateStockLocation: (stockId: string, locationId: string, quantity: number, userId: string) => Promise<void>;
   user: any;
@@ -17,35 +19,58 @@ interface PendingOrgTabProps {
 
 export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
   stock,
+  stores,
   getProduct,
   getCategory,
+  getStore,
   getStoreLocations,
   updateStockLocation,
   user
 }) => {
   const [selectedProductToOrganize, setSelectedProductToOrganize] = useState<string | null>(null);
+  const [selectedProductStoreId, setSelectedProductStoreId] = useState<string | null>(null);
   const [locationAssignments, setLocationAssignments] = useState<{locationId: string, quantity: number}[]>([]);
+  // Filtro por tienda — '' = todas
+  const [storeFilter, setStoreFilter] = useState<string>('');
 
-  // Group stock by product that has NO location assigned
+  // Agrupar stock SIN ubicación por producto, luego aplicar filtro de tienda
   const pendingStockByProduct = stock.reduce((acc, s) => {
     if (!s.locationId) {
-      if (!acc[s.productId]) {
-        acc[s.productId] = {
+      const key = `${s.productId}-${s.storeId}`;
+      if (!acc[key]) {
+        acc[key] = {
           productId: s.productId,
           storeId: s.storeId,
           totalQuantity: 0,
           stockItems: []
         };
       }
-      acc[s.productId].totalQuantity += Number(s.quantity);
-      acc[s.productId].stockItems.push(s);
+      acc[key].totalQuantity += Number(s.quantity);
+      acc[key].stockItems.push(s);
     }
     return acc;
   }, {} as Record<string, { productId: string, storeId: string, totalQuantity: number, stockItems: Stock[] }>);
 
-  const handleSelectToOrganize = (productId: string) => {
+  type PendingEntry = { productId: string, storeId: string, totalQuantity: number, stockItems: Stock[] };
+
+  // Aplicar filtro de tienda
+  const filteredEntries = (Object.values(pendingStockByProduct) as PendingEntry[]).filter(data =>
+    storeFilter === '' || String(data.storeId) === String(storeFilter)
+  );
+
+  // Agrupar por tienda para la vista agrupada
+  const groupedByStore = filteredEntries.reduce((acc, data) => {
+    const sid = String(data.storeId);
+    if (!acc[sid]) acc[sid] = [];
+    acc[sid].push(data);
+    return acc;
+  }, {} as Record<string, PendingEntry[]>);
+
+  const handleSelectToOrganize = (productId: string, storeId: string) => {
+    const key = `${productId}-${storeId}`;
     setSelectedProductToOrganize(productId);
-    setLocationAssignments([{ locationId: '', quantity: pendingStockByProduct[productId].totalQuantity }]);
+    setSelectedProductStoreId(storeId);
+    setLocationAssignments([{ locationId: '', quantity: pendingStockByProduct[key].totalQuantity }]);
   };
 
   const handleAddLocationAssignment = () => {
@@ -63,9 +88,10 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
   };
 
   const handleSaveOrganization = async () => {
-    if (!selectedProductToOrganize) return;
+    if (!selectedProductToOrganize || !selectedProductStoreId) return;
 
-    const pendingData = pendingStockByProduct[selectedProductToOrganize];
+    const key = `${selectedProductToOrganize}-${selectedProductStoreId}`;
+    const pendingData = pendingStockByProduct[key];
     const totalAssigned = locationAssignments.reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
 
     if (totalAssigned !== pendingData.totalQuantity) {
@@ -78,41 +104,43 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
       return;
     }
 
-    // Process assignments sequentially to avoid race conditions in stock updates
-    let remainingStockItems = [...pendingData.stockItems];
-    
-    for (const assignment of locationAssignments) {
-      let quantityNeeded = assignment.quantity;
-      
-      while (quantityNeeded > 0 && remainingStockItems.length > 0) {
-        const currentStock = remainingStockItems[0];
-        
-        if (currentStock.quantity <= quantityNeeded) {
-          // Use entire stock item
-          await updateStockLocation(currentStock.id, assignment.locationId, currentStock.quantity, user?.id);
-          quantityNeeded -= currentStock.quantity;
-          remainingStockItems.shift(); // Remove from list
-        } else {
-          // Split stock item
-          await updateStockLocation(currentStock.id, assignment.locationId, quantityNeeded, user?.id);
-          // Update remaining quantity in memory for next iterations if needed
-          currentStock.quantity -= quantityNeeded;
-          quantityNeeded = 0;
+    try {
+      let remainingStockItems = [...pendingData.stockItems];
+      for (const assignment of locationAssignments) {
+        let quantityNeeded = assignment.quantity;
+        while (quantityNeeded > 0 && remainingStockItems.length > 0) {
+          const currentStock = remainingStockItems[0];
+          if (currentStock.quantity <= quantityNeeded) {
+            await updateStockLocation(currentStock.id, assignment.locationId, currentStock.quantity, user?.id);
+            quantityNeeded -= currentStock.quantity;
+            remainingStockItems.shift();
+          } else {
+            await updateStockLocation(currentStock.id, assignment.locationId, quantityNeeded, user?.id);
+            currentStock.quantity -= quantityNeeded;
+            quantityNeeded = 0;
+          }
         }
       }
-    }
 
-    // Reset state
-    setSelectedProductToOrganize(null);
-    setLocationAssignments([]);
-    alert('Mercancía organizada exitosamente.');
+      setSelectedProductToOrganize(null);
+      setSelectedProductStoreId(null);
+      setLocationAssignments([]);
+      alert('Mercancía organizada exitosamente.');
+    } catch (error: any) {
+      alert(`Error al guardar ubicaciones: ${error?.message || 'Error desconocido. Revisa la consola.'}`);
+      console.error('[handleSaveOrganization] Error:', error);
+    }
   };
 
-  if (selectedProductToOrganize) {
-    const pendingData = pendingStockByProduct[selectedProductToOrganize];
+
+  // ─── Vista de organización (detalle de un producto) ────────────────────────
+  if (selectedProductToOrganize && selectedProductStoreId) {
+    const key = `${selectedProductToOrganize}-${selectedProductStoreId}`;
+    const pendingData = pendingStockByProduct[key];
     const product = getProduct(selectedProductToOrganize);
     const category = getCategory(product?.categoryId || '');
-    const availableLocations = getStoreLocations(pendingData.storeId);
+    const storeName = getStore(selectedProductStoreId)?.name;
+    const availableLocations = getStoreLocations(selectedProductStoreId);
     const totalAssigned = locationAssignments.reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
     const isBalanced = totalAssigned === pendingData.totalQuantity;
 
@@ -120,7 +148,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
       <div className="space-y-6">
         <header className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-8">
           <button 
-            onClick={() => setSelectedProductToOrganize(null)}
+            onClick={() => { setSelectedProductToOrganize(null); setSelectedProductStoreId(null); }}
             className="p-2 hover:bg-slate-100 rounded-full transition-colors self-start sm:self-auto"
           >
             <ArrowLeft className="w-6 h-6 text-slate-600" />
@@ -129,8 +157,8 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
               Organizar: {product?.name}
             </h1>
-            <p className="text-slate-500 mt-1">
-              Asignar ubicaciones físicas para la mercancía recibida.
+            <p className="text-slate-500 mt-1 flex items-center gap-1">
+              <Building2 className="w-4 h-4" /> {storeName}
             </p>
           </div>
           <Button 
@@ -145,8 +173,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm h-fit">
-            <h3 className="text-sm font-medium text-slate-500 mb-4 uppercase tracking-wider">Resumen de Mercancía</h3>
-            
+            <h3 className="text-sm font-medium text-slate-500 mb-4 uppercase tracking-wider">Resumen</h3>
             <div className="flex items-center gap-4 mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center border border-slate-200 shadow-sm">
                 <Package className="w-6 h-6 text-blue-600" />
@@ -154,24 +181,22 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
               <div>
                 <p className="font-bold text-slate-900 text-lg">{product?.name}</p>
                 <p className="text-sm text-slate-500 font-mono">{product?.code}</p>
+                <Badge variant="outline" className="mt-1">{category?.name || 'Sin Categoría'}</Badge>
               </div>
             </div>
-
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="flex justify-between items-center p-3 bg-blue-50 text-blue-900 rounded-xl border border-blue-100">
                 <span className="font-medium">Total a Organizar:</span>
                 <span className="text-2xl font-bold">{Number(pendingData.totalQuantity)}</span>
               </div>
-              
               <div className={`flex justify-between items-center p-3 rounded-xl border ${isBalanced ? 'bg-emerald-50 text-emerald-900 border-emerald-100' : 'bg-amber-50 text-amber-900 border-amber-100'}`}>
                 <span className="font-medium">Total Asignado:</span>
                 <span className="text-xl font-bold">{Number(totalAssigned)}</span>
               </div>
-
               {!isBalanced && (
                 <div className="flex items-start gap-2 text-amber-600 text-sm mt-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p>La cantidad asignada debe ser exactamente igual a la cantidad total a organizar.</p>
+                  <p>La cantidad asignada debe ser exactamente igual a la total pendiente.</p>
                 </div>
               )}
             </div>
@@ -188,7 +213,6 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
                   + Añadir Ubicación
                 </Button>
               </div>
-
               <div className="space-y-4">
                 {locationAssignments.map((assignment, index) => (
                   <div key={index} className="flex flex-col sm:flex-row gap-4 items-start sm:items-center p-4 bg-slate-50 rounded-2xl border border-slate-200">
@@ -213,7 +237,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
                         type="number"
                         min="1"
                         value={assignment.quantity}
-                        onChange={(e) => handleUpdateLocationAssignment(index, 'quantity', parseInt(e.target.value) || 0)}
+                        onChange={(e) => handleUpdateLocationAssignment(index, 'quantity', parseFloat(e.target.value) || 0)}
                         className="w-full text-center font-mono"
                       />
                     </div>
@@ -235,6 +259,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
     );
   }
 
+  // ─── Vista principal: lista agrupada por tienda ────────────────────────────
   return (
     <div className="space-y-6">
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
@@ -242,71 +267,99 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Pendiente por Organizar</h1>
           <p className="text-slate-500 mt-2">Mercancía recibida que requiere asignación de ubicación física.</p>
         </div>
+        {/* Filtro por tienda */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
+          <select
+            value={storeFilter}
+            onChange={(e) => setStoreFilter(e.target.value)}
+            className="w-full sm:w-auto bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none"
+          >
+            <option value="">Todas las tiendas</option>
+            {stores.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
       </header>
 
-      <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto -mx-4 sm:mx-0">
-          <div className="min-w-[1000px] px-4 sm:px-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Código</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead className="text-center">Letra</TableHead>
-                  <TableHead className="text-center">Cant. Pendiente</TableHead>
-                  <TableHead className="text-center">Alerta Stock Min.</TableHead>
-                  <TableHead className="text-right">Acción</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {Object.values(pendingStockByProduct).map((data: { productId: string, storeId: string, totalQuantity: number, stockItems: Stock[] }) => {
-                  const product = getProduct(data.productId);
-                  const category = getCategory(product?.categoryId || '');
-                  // Calculate min stock across all stock items for this product
-                  const minStock = data.stockItems.reduce((acc, curr) => Math.max(acc, curr.minStock), 0);
-                  const isLowStock = data.totalQuantity <= minStock;
-
-                  return (
-                    <TableRow key={data.productId} className="group hover:bg-slate-50 transition-colors">
-                      <TableCell className="font-mono text-slate-500">{product?.code}</TableCell>
-                      <TableCell className="font-medium text-slate-900">{product?.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{category?.name || 'Sin Categoría'}</Badge>
-                      </TableCell>
-                      <TableCell className="text-center font-mono font-bold text-slate-700">
-                        {category?.code || '-'}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <span className="inline-flex items-center justify-center px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-bold">
-                          {Number(data.totalQuantity)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <span className={`font-mono ${isLowStock ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
-                          {minStock}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button size="sm" onClick={() => handleSelectToOrganize(data.productId)}>
-                          Seleccionar
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {Object.keys(pendingStockByProduct).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7} className="py-12 text-center text-slate-500">
-                      No hay mercancía pendiente por organizar.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+      {Object.keys(groupedByStore).length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-3xl p-12 shadow-sm text-center text-slate-500">
+          No hay mercancía pendiente por organizar{storeFilter ? ' en esta tienda' : ''}.
         </div>
-      </div>
+      ) : (
+        Object.entries(groupedByStore).map(([storeId, items]) => {
+          const store = getStore(storeId);
+          return (
+            <div key={storeId} className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+              {/* Header de la tienda */}
+              <div className="flex items-center gap-3 px-6 py-4 bg-slate-50 border-b border-slate-200">
+                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <Building2 className="w-4 h-4 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-slate-900">{store?.name || 'Tienda Desconocida'}</h2>
+                  <p className="text-xs text-slate-500">{items.length} producto{items.length !== 1 ? 's' : ''} pendiente{items.length !== 1 ? 's' : ''}</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <div className="min-w-[900px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Código</TableHead>
+                        <TableHead>Producto</TableHead>
+                        <TableHead>Categoría</TableHead>
+                        <TableHead className="text-center">Letra</TableHead>
+                        <TableHead className="text-center">Cant. Pendiente</TableHead>
+                        <TableHead className="text-center">Alerta Stock Mín.</TableHead>
+                        <TableHead className="text-right">Acción</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((data) => {
+                        const product = getProduct(data.productId);
+                        const category = getCategory(product?.categoryId || '');
+                        const minStock = data.stockItems.reduce((acc, curr) => Math.max(acc, curr.minStock), 0);
+                        const isLowStock = data.totalQuantity <= minStock;
+
+                        return (
+                          <TableRow key={`${data.productId}-${data.storeId}`} className="group hover:bg-slate-50 transition-colors">
+                            <TableCell className="font-mono text-slate-500">{product?.code}</TableCell>
+                            <TableCell className="font-medium text-slate-900">{product?.name}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{category?.name || 'Sin Categoría'}</Badge>
+                            </TableCell>
+                            <TableCell className="text-center font-mono font-bold text-slate-700">
+                              {category?.code || '-'}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span className="inline-flex items-center justify-center px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-bold">
+                                {Number(data.totalQuantity)}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span className={`font-mono ${isLowStock ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
+                                {minStock}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button size="sm" onClick={() => handleSelectToOrganize(data.productId, data.storeId)}>
+                                Seleccionar
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 };

@@ -66,6 +66,17 @@ CREATE TABLE categories (
     fraction_type VARCHAR(50)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE providers (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    code           VARCHAR(50)  NOT NULL UNIQUE,
+    name           VARCHAR(150) NOT NULL,
+    contact_number VARCHAR(100),
+    address        TEXT,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 CREATE TABLE products (
     id               INT AUTO_INCREMENT PRIMARY KEY,
     code             VARCHAR(50)  NOT NULL UNIQUE,

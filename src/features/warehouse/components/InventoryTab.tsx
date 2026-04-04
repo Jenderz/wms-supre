@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import html2canvas from 'html2canvas';
-import { Stock, User } from '../../../types';
-import { Search, Printer, MapPin, ChevronDown, ChevronRight, Box, ScanLine, Edit2, Check, X } from 'lucide-react';
+import { Stock, User, Store } from '../../../types';
+import { Search, Printer, MapPin, ChevronDown, ChevronRight, Box, ScanLine, Edit2, Check, X, Building2 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../../components/ui/Table';
 import { Badge } from '../../../components/ui/Badge';
@@ -11,23 +11,28 @@ import { QRScannerModal } from '../../../components/QRScannerModal';
 
 interface InventoryTabProps {
   stock: Stock[];
+  stores: Store[];
   getProduct: (id: string) => any;
   getCategory: (id: string) => any;
   getLocation: (id: string) => any;
+  getStore: (id: string) => any;
   user: User | null;
   updateMinStock: (productId: string, storeId: string, newMinStock: number) => void;
 }
 
 export const InventoryTab: React.FC<InventoryTabProps> = ({
   stock,
+  stores,
   getProduct,
   getCategory,
   getLocation,
+  getStore,
   user,
   updateMinStock
 }) => {
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('');
+  const [inventoryStoreFilter, setInventoryStoreFilter] = useState('');
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [editingMinStock, setEditingMinStock] = useState<{ productId: string, storeId: string } | null>(null);
@@ -58,8 +63,9 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
     const matchesSearch = product.name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
                           product.code.toLowerCase().includes(inventorySearch.toLowerCase());
     const matchesCategory = inventoryCategoryFilter === '' || product.categoryId === inventoryCategoryFilter;
+    const matchesStore = inventoryStoreFilter === '' || String(s.storeId) === String(inventoryStoreFilter);
     
-    return matchesSearch && matchesCategory;
+    return matchesSearch && matchesCategory && matchesStore;
   });
 
   const uniqueCategories = Array.from(new Set(stock.map(s => getProduct(s.productId)?.categoryId))).filter(Boolean);
@@ -73,7 +79,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
   }, {} as Record<string, Stock[]>);
 
   const handleSaveMinStock = (productId: string, storeId: string) => {
-    const value = parseInt(minStockValue);
+    const value = parseFloat(minStockValue);
     if (!isNaN(value) && value >= 0) {
       updateMinStock(productId, storeId, value);
     }
@@ -143,8 +149,24 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
       </header>
 
       <div className="flex flex-col md:flex-row gap-4 mb-6">
+        {/* Filtro Tienda */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
-          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">Filtrar por Categoría:</span>
+          <span className="text-sm font-medium text-slate-700 whitespace-nowrap flex items-center gap-1">
+            <Building2 className="w-4 h-4 text-slate-400" /> Tienda:
+          </span>
+          <select
+            value={inventoryStoreFilter}
+            onChange={(e) => setInventoryStoreFilter(e.target.value)}
+            className="w-full sm:w-auto bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none"
+          >
+            <option value="">Todas</option>
+            {stores.map(store => (
+              <option key={store.id} value={store.id}>{store.name}</option>
+            ))}
+          </select>
+        </div>
+        {/* Filtro Categoría */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
           <select
             value={inventoryCategoryFilter}
             onChange={(e) => setInventoryCategoryFilter(e.target.value)}

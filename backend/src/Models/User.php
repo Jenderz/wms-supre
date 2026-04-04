@@ -18,13 +18,22 @@ class User
     public function findByUsername(string $username): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT id, name, username, password_hash, role, permissions 
-             FROM users WHERE username = :username LIMIT 1"
+            "SELECT u.id, u.name, u.username, u.password_hash, u.role, u.permissions,
+                    GROUP_CONCAT(us.store_id) as assigned_stores
+             FROM users u
+             LEFT JOIN user_stores us ON u.id = us.user_id
+             WHERE u.username = :username
+             GROUP BY u.id
+             LIMIT 1"
         );
         $stmt->execute([':username' => $username]);
         $row = $stmt->fetch();
         if (!$row) return null;
-        $row['permissions'] = json_decode($row['permissions'] ?? '[]', true);
+        $row['permissions']    = json_decode($row['permissions'] ?? '[]', true);
+        $row['assignedStores'] = $row['assigned_stores']
+            ? array_map('intval', explode(',', $row['assigned_stores']))
+            : [];
+        unset($row['assigned_stores']);
         return $row;
     }
 

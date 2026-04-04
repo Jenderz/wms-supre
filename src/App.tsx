@@ -6,12 +6,13 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { CatalogPage } from './features/catalog/pages/CatalogPage';
 import { CategoriesPage } from './features/catalog/pages/CategoriesPage';
+import { ProvidersPage } from './features/catalog/pages/ProvidersPage';
 import Infrastructure from './pages/Infrastructure';
 import Purchasing from './pages/Purchasing';
 import Warehouse from './pages/Warehouse';
 import Disincorporation from './pages/Disincorporation';
 import Settings from './pages/Settings';
-import Statistics from './pages/Statistics';
+import { StockMovements } from './pages/StockMovements';
 
 export default function App() {
   return (
@@ -23,11 +24,12 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="catalog" element={<CatalogPage />} />
             <Route path="categories" element={<CategoriesPage />} />
+            <Route path="providers" element={<ProvidersPage />} />
             <Route path="infrastructure" element={<Infrastructure />} />
             <Route path="purchasing" element={<Purchasing />} />
             <Route path="warehouse" element={<Warehouse />} />
             <Route path="disincorporation" element={<Disincorporation />} />
-            <Route path="statistics" element={<Statistics />} />
+            <Route path="movements" element={<StockMovements />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

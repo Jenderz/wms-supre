@@ -52,19 +52,19 @@ export const useWarehouse = () => {
   };
 
   /**
-   * Mueve stock a una nueva ubicación llamando al endpoint upsert.
+   * Mueve stock a una nueva ubicación llamando al endpoint /stock/move.
    */
   const updateStockLocation = async (stockId: string, newLocationId: string, quantityToMove: number, _userId: string) => {
     const stockItem = stock.find(s => String(s.id) === String(stockId));
     if (!stockItem) return;
 
-    // Actualiza el ítem existente con la nueva ubicación
-    await StockApi.upsert({
+    // Ejecuta transacción de movimiento real que resta de origen y suma al destino
+    await StockApi.move({
       productId: stockItem.productId,
       storeId: stockItem.storeId,
-      locationId: newLocationId,
+      fromLocationId: stockItem.locationId ?? undefined, // Undefined si es del área de pendientes
+      toLocationId: newLocationId,
       quantity: quantityToMove,
-      minStock: stockItem.minStock,
     });
     await loadData();
   };

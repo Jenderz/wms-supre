@@ -30,12 +30,14 @@ class AuthController
         $expiration = (int) ($_ENV['JWT_EXPIRATION'] ?? 86400);
 
         $payload = [
-            'iat'      => time(),
-            'exp'      => time() + $expiration,
-            'user_id'  => $user['id'],
-            'username' => $user['username'],
-            'name'     => $user['name'],
-            'role'     => $user['role'],
+            'iat'            => time(),
+            'exp'            => time() + $expiration,
+            'user_id'        => $user['id'],
+            'username'       => $user['username'],
+            'name'           => $user['name'],
+            'role'           => $user['role'],
+            'permissions'    => $user['permissions'] ?? [],    // Requerido por el Sidebar para chequear VIEW_STOCK_MOVEMENTS, etc.
+            'assignedStores' => $user['assignedStores'] ?? [], // Requerido por el filtro de tiendas del Depósito
         ];
 
         $token = JWT::encode($payload, $secret, 'HS256');
@@ -45,5 +47,31 @@ class AuthController
             'token' => $token,
             'user'  => $user,
         ]);
+    }
+
+    public function verifyPassword(object $authUser): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true);
+
+        if (empty($input['password'])) {
+            Response::error('La contraseña es requerida.', 400);
+            return;
+        }
+
+        // Permitimos que solo administradores puedan verificar
+        if ($authUser->role !== 'ADMIN') {
+            Response::error('Acceso denegado: Se requiere rol de Administrador.', 403);
+            return;
+        }
+
+        $userModel = new User();
+        $user = $userModel->findByUsername($authUser->username);
+
+        if (!$user || !password_verify($input['password'], $user['password_hash'])) {
+            Response::error('Contraseña incorrecta.', 401);
+            return;
+        }
+
+        Response::json(['message' => 'Contraseña verificada correctamente.', 'success' => true]);
     }
 }

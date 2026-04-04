@@ -41,7 +41,7 @@ const Dashboard: React.FC = () => {
   const chartData = products.map(p => {
     const pStock = stock
       .filter(s => String(s.productId) === String(p.id))
-      .reduce((acc, curr) => acc + curr.quantity, 0);
+      .reduce((acc, curr) => acc + Number(curr.quantity), 0);
     return { name: p.name, stock: pStock };
   }).slice(0, 5);
 

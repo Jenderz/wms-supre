@@ -30,4 +30,26 @@ class StockController
         $this->model->upsert($data);
         Response::json(['message' => 'Stock actualizado.']);
     }
+
+    public function move(object $authUser): void
+    {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['productId']) || empty($data['storeId']) || empty($data['toLocationId']) || empty($data['quantity'])) {
+            Response::error('productId, storeId, toLocationId y quantity son requeridos.', 400);
+            return;
+        }
+
+        $fromLocationId = isset($data['fromLocationId']) ? (int) $data['fromLocationId'] : null;
+        
+        $this->model->moveStock(
+            (int)$data['productId'], 
+            (int)$data['storeId'], 
+            $fromLocationId, 
+            (int)$data['toLocationId'], 
+            (float)$data['quantity'],
+            (int)$authUser->user_id
+        );
+
+        Response::json(['message' => 'Stock movido exitosamente.']);
+    }
 }

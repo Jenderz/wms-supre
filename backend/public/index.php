@@ -46,6 +46,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 use App\Controllers\AuthController;
 use App\Controllers\UserController;
 use App\Controllers\CategoryController;
+use App\Controllers\ProviderController;
 use App\Controllers\ProductController;
 use App\Controllers\StoreController;
 use App\Controllers\LocationController;
@@ -69,6 +70,11 @@ try {
     // --- Rutas protegidas (requieren JWT válido) ---
     $user = AuthMiddleware::verify(); // Lanza excepción si el token es inválido
 
+    if ($uri === '/auth/verify-password' && $method === 'POST') {
+        (new AuthController())->verifyPassword($user);
+        exit;
+    }
+
     // --- Users ---
     route('GET',    '/users',           fn() => (new UserController())->index());
     route('POST',   '/users',           fn() => (new UserController())->store());
@@ -80,6 +86,12 @@ try {
     route('POST',   '/categories',      fn() => (new CategoryController())->store());
     route('PUT',    '/categories/{id}', fn($params) => (new CategoryController())->update($params['id']));
     route('DELETE', '/categories/{id}', fn($params) => (new CategoryController())->destroy($params['id']));
+
+    // --- Providers ---
+    route('GET',    '/providers',       fn() => (new ProviderController())->index());
+    route('POST',   '/providers',       fn() => (new ProviderController())->store());
+    route('PUT',    '/providers/{id}',  fn($params) => (new ProviderController())->update($params['id']));
+    route('DELETE', '/providers/{id}',  fn($params) => (new ProviderController())->destroy($params['id']));
 
     // --- Products ---
     route('GET',    '/products',        fn() => (new ProductController())->index());
@@ -102,6 +114,7 @@ try {
     // --- Stock ---
     route('GET',    '/stock',           fn() => (new StockController())->index());
     route('POST',   '/stock',           fn() => (new StockController())->upsert());
+    route('POST',   '/stock/move',      fn() => (new StockController())->move($user));
 
     // --- PickingLots ---
     route('GET',    '/picking-lots',           fn() => (new PickingLotController())->index());
@@ -109,7 +122,7 @@ try {
     route('GET',    '/picking-lots/{id}',      fn($params) => (new PickingLotController())->show($params['id']));
     route('PUT',    '/picking-lots/{id}',      fn($params) => (new PickingLotController())->update($params['id']));
     route('PATCH',  '/picking-lots/{id}/conform', fn($params) => (new PickingLotController())->conform($params['id'], $user));
-    route('DELETE', '/picking-lots/{id}',      fn($params) => (new PickingLotController())->destroy($params['id']));
+    route('DELETE', '/picking-lots/{id}',      fn($params) => (new PickingLotController())->destroy($params['id'], $user));
 
     // --- Disincorporations ---
     route('GET',    '/disincorporations',           fn() => (new DisincorporationController())->index());
@@ -119,7 +132,7 @@ try {
     route('PATCH',  '/disincorporations/{id}/reject',  fn($params) => (new DisincorporationController())->reject($params['id'], $user));
 
     // --- Stock Movements ---
-    route('GET',    '/movements',       fn() => (new StockMovementController())->index());
+    route('GET',    '/movements',       fn() => (new StockMovementController())->index($user));
 
     // Si ninguna ruta hizo match
     Response::json(['error' => 'Endpoint no encontrado.'], 404);

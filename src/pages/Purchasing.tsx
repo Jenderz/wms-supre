@@ -141,7 +141,8 @@ const Purchasing: React.FC = () => {
       quantityToEnter: 1,
       numberOfPackages: 1,
       packagesConfig: [{ packageIndex: 1, quantity: 1 }],
-      packageDimensions: selectedProduct.dimensions || { height: 0, width: 0, depth: 0 }, // Default to product dimensions
+      packageDimensions: undefined, // Legado: ya no se autocompleta
+      packageDescription: '',       // Campo de texto libre (puede quedar en blanco)
       minStockAlert: 5
     };
     
@@ -205,19 +206,10 @@ const Purchasing: React.FC = () => {
     }));
   };
 
-  const handleUpdateDimensions = (itemId: string, dimField: 'height' | 'width' | 'depth', value: number) => {
-    setItems(items.map(item => {
-      if (item.id === itemId) {
-        return {
-          ...item,
-          packageDimensions: {
-            ...item.packageDimensions,
-            [dimField]: value
-          }
-        };
-      }
-      return item;
-    }));
+  const handleUpdatePackageDescription = (itemId: string, description: string) => {
+    setItems(items.map(item =>
+      item.id === itemId ? { ...item, packageDescription: description } : item
+    ));
   };
 
   // Save / Send
@@ -306,8 +298,8 @@ const Purchasing: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {visibleLots.map(lot => {
-                  const totalBultos = lot.items.reduce((acc, item) => acc + item.numberOfPackages, 0);
-                  const totalPiezas = lot.items.reduce((acc, item) => acc + item.quantityToEnter, 0);
+                  const totalBultos = lot.items.reduce((acc, item) => acc + Number(item.numberOfPackages), 0);
+                  const totalPiezas = lot.items.reduce((acc, item) => acc + Number(item.quantityToEnter), 0);
                   const creator = getUser(lot.createdBy);
 
                   return (
@@ -369,6 +361,25 @@ const Purchasing: React.FC = () => {
                                 onClick={() => handleDelete(lot.id)}
                                 className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                                 title="Eliminar"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                          {/* ADMIN puede editar/borrar lotes PENDING */}
+                          {lot.status === 'PENDING' && user?.role === 'ADMIN' && (
+                            <>
+                              <button 
+                                onClick={() => handleEditLot(lot)}
+                                className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                                title="Editar (Solo Admin)"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => handleDelete(lot.id)}
+                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                title="Eliminar (Solo Admin)"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -526,7 +537,7 @@ const Purchasing: React.FC = () => {
                     <TableHead className="w-16 text-center">Stock</TableHead>
                     <TableHead className="w-20 text-center">Bultos</TableHead>
                     <TableHead className="min-w-[120px]">Detalle Bultos</TableHead>
-                    <TableHead className="min-w-[120px]">Medidas (cm)</TableHead>
+                    <TableHead className="min-w-[120px]">Desc. Bulto</TableHead>
                     <TableHead className="w-20 text-center">Alerta</TableHead>
                     <TableHead className="w-20 text-center">Total</TableHead>
                     <TableHead className="w-10"></TableHead>
@@ -560,7 +571,7 @@ const Purchasing: React.FC = () => {
                             min="1"
                             value={item.numberOfPackages}
                             onFocus={(e) => e.target.select()}
-                            onChange={(e) => handleUpdateItem(item.id, 'numberOfPackages', parseInt(e.target.value) || 1)}
+                            onChange={(e) => handleUpdateItem(item.id, 'numberOfPackages', parseFloat(e.target.value) || 1)}
                             className="w-full text-center bg-slate-50 border border-slate-200 rounded-lg py-1 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none"
                           />
                         </TableCell>
@@ -574,7 +585,7 @@ const Purchasing: React.FC = () => {
                                   min="0"
                                   value={pkg.quantity}
                                   onFocus={(e) => e.target.select()}
-                                  onChange={(e) => handleUpdatePackageConfig(item.id, idx, parseInt(e.target.value) || 0)}
+                                  onChange={(e) => handleUpdatePackageConfig(item.id, idx, parseFloat(e.target.value) || 0)}
                                   className="w-16 text-center bg-white border border-slate-200 rounded px-1 py-0.5"
                                   placeholder="Cant."
                                 />
@@ -583,34 +594,13 @@ const Purchasing: React.FC = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-1 text-xs">
-                            <input
-                              type="number"
-                              value={item.packageDimensions.height}
-                              onFocus={(e) => e.target.select()}
-                              onChange={(e) => handleUpdateDimensions(item.id, 'height', parseInt(e.target.value) || 0)}
-                              className="w-10 text-center bg-white border border-slate-200 rounded px-1"
-                              placeholder="Al"
-                            />
-                            <span className="text-slate-300">x</span>
-                            <input
-                              type="number"
-                              value={item.packageDimensions.width}
-                              onFocus={(e) => e.target.select()}
-                              onChange={(e) => handleUpdateDimensions(item.id, 'width', parseInt(e.target.value) || 0)}
-                              className="w-10 text-center bg-white border border-slate-200 rounded px-1"
-                              placeholder="An"
-                            />
-                            <span className="text-slate-300">x</span>
-                            <input
-                              type="number"
-                              value={item.packageDimensions.depth}
-                              onFocus={(e) => e.target.select()}
-                              onChange={(e) => handleUpdateDimensions(item.id, 'depth', parseInt(e.target.value) || 0)}
-                              className="w-10 text-center bg-white border border-slate-200 rounded px-1"
-                              placeholder="Pr"
-                            />
-                          </div>
+                          <textarea
+                            value={item.packageDescription ?? ''}
+                            onChange={(e) => handleUpdatePackageDescription(item.id, e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs resize-none focus:ring-2 focus:ring-blue-500/50 focus:outline-none"
+                            placeholder="Desc. del bulto (opcional)"
+                            rows={2}
+                          />
                         </TableCell>
                         <TableCell>
                           <input
@@ -618,7 +608,7 @@ const Purchasing: React.FC = () => {
                             min="0"
                             value={item.minStockAlert}
                             onFocus={(e) => e.target.select()}
-                            onChange={(e) => handleUpdateItem(item.id, 'minStockAlert', parseInt(e.target.value) || 0)}
+                            onChange={(e) => handleUpdateItem(item.id, 'minStockAlert', parseFloat(e.target.value) || 0)}
                             className="w-16 text-center bg-slate-50 border border-slate-200 rounded-lg py-1 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none"
                           />
                         </TableCell>

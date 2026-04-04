@@ -216,25 +216,38 @@ const DisincorporationPage: React.FC = () => {
     doc.save(`Desincorporacion_${format(new Date(d.createdAt), 'yyyyMMdd_HHmm')}.pdf`);
   };
 
-  // Derived state for item addition
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
-    p.code.includes(productSearch)
-  ).slice(0, 5);
+  // Solo mostramos productos que tienen stock disponible EN la tienda seleccionada
+  const filteredProducts = productSearch
+    ? products.filter(p => {
+        const matchesSearch = (
+          p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
+          p.code.includes(productSearch)
+        );
+        if (!matchesSearch) return false;
+        // Debe tener al menos 1 unidad en stock en la tienda seleccionada
+        if (!selectedStoreId) return true; // Si no hay tienda aún, mostrar todos los que hacen match
+        const hasStock = stock.some(s =>
+          String(s.productId) === String(p.id) &&
+          String(s.storeId) === String(selectedStoreId) &&
+          s.quantity > 0
+        );
+        return hasStock;
+      }).slice(0, 8)
+    : [];
 
   const availableStock = selectedProduct ? stock.filter(s => {
-    if (s.productId !== selectedProduct.id || s.storeId !== selectedStoreId) return false;
+    if (String(s.productId) !== String(selectedProduct.id) || String(s.storeId) !== String(selectedStoreId)) return false;
     
     // Calculate how much of this specific stock is already in the form
     const quantityInForm = formItems
       .filter(item => item.productId === s.productId && item.locationId === s.locationId)
-      .reduce((sum, item) => sum + item.quantity, 0);
+      .reduce((sum, item) => sum + Number(item.quantity), 0);
       
     return (s.quantity - quantityInForm) > 0;
   }).map(s => {
     const quantityInForm = formItems
       .filter(item => item.productId === s.productId && item.locationId === s.locationId)
-      .reduce((sum, item) => sum + item.quantity, 0);
+      .reduce((sum, item) => sum + Number(item.quantity), 0);
     return { ...s, availableQuantity: s.quantity - quantityInForm };
   }) : [];
 
@@ -385,19 +398,27 @@ const DisincorporationPage: React.FC = () => {
                   </div>
                   {productSearch && !selectedProduct && (
                     <div className="mt-2 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto absolute z-10 w-full max-w-xs">
-                      {filteredProducts.map(product => (
-                        <button
-                          key={product.id}
-                          className="w-full text-left px-4 py-2 hover:bg-slate-50 text-sm border-b border-slate-100 last:border-0"
-                          onClick={() => {
-                            setSelectedProduct(product);
-                            setProductSearch(product.name);
-                          }}
-                        >
-                          <div className="font-medium text-slate-900">{product.name}</div>
-                          <div className="text-xs text-slate-500 font-mono">{product.code}</div>
-                        </button>
-                      ))}
+                      {filteredProducts.length > 0 ? (
+                        filteredProducts.map(product => (
+                          <button
+                            key={product.id}
+                            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-sm border-b border-slate-100 last:border-0"
+                            onClick={() => {
+                              setSelectedProduct(product);
+                              setProductSearch(product.name);
+                            }}
+                          >
+                            <div className="font-medium text-slate-900">{product.name}</div>
+                            <div className="text-xs text-slate-500 font-mono">{product.code}</div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-slate-500 italic">
+                          {selectedStoreId
+                            ? 'No hay productos con stock en esta tienda que coincidan con la búsqueda.'
+                            : 'Seleccione una tienda primero.'}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

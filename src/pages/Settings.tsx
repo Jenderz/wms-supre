@@ -17,6 +17,7 @@ const AVAILABLE_PERMISSIONS: { id: Permission; label: string; description: strin
   { id: 'MANAGE_DISINCORPORATION', label: 'Desincorporación', description: 'Gestionar la desincorporación de productos.' },
   { id: 'VIEW_REPORTS', label: 'Ver Reportes', description: 'Acceso a reportes y analíticas del sistema.' },
   { id: 'EXPORT_DATA', label: 'Exportar Datos', description: 'Permite exportar datos a CSV/Excel.' },
+  { id: 'VIEW_STOCK_MOVEMENTS', label: 'Historial de Movimientos', description: 'Permite ver el módulo de historial de movimientos de stock.' },
 ];
 
 const ROLES: Role[] = ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'];

@@ -8,7 +8,8 @@ export type Permission =
   | 'APPROVE_PURCHASES'
   | 'MANAGE_DISINCORPORATION'
   | 'VIEW_REPORTS'
-  | 'EXPORT_DATA';
+  | 'EXPORT_DATA'
+  | 'VIEW_STOCK_MOVEMENTS';
 
 export interface User {
   id: string;
@@ -28,6 +29,16 @@ export interface Category {
   qrCode: string;
   isFractional: boolean;
   fractionType?: 'Litro' | 'Metro' | 'Kilo';
+}
+
+export interface Provider {
+  id: string;
+  code: string;
+  name: string;
+  contact_number?: string;
+  address?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Product {
@@ -76,8 +87,9 @@ export interface PickingLotItem {
   productId: string;
   quantityToEnter: number;
   numberOfPackages: number;
-  packagesConfig: { packageIndex: number; quantity: number }[];
-  packageDimensions: { height: number; width: number; depth: number };
+  packagesConfig: { packageIndex: number; quantity: number; description?: string }[];
+  packageDimensions?: { height: number; width: number; depth: number }; // Opcional: legado
+  packageDescription?: string; // Texto libre de descripción por bulto (nuevo)
   minStockAlert: number;
 }
 

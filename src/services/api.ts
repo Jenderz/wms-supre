@@ -58,6 +58,8 @@ const patch = <T>(path: string, body?: unknown) => request<T>('PATCH', path, bod
 export const AuthApi = {
   login: (username: string, password: string) =>
     post<{ token: string; user: object }>('/auth/login', { username, password }),
+  verifyPassword: (password: string) =>
+    post<{ success: boolean; message: string }>('/auth/verify-password', { password }),
 };
 
 // ===========================================================
@@ -70,14 +72,21 @@ export const UserApi = {
   remove:  (id: string | number)     => del<void>(`/users/${id}`),
 };
 
-// ===========================================================
-// Categories
-// ===========================================================
 export const CategoryApi = {
   getAll:  ()                        => get<unknown[]>('/categories'),
   create:  (data: unknown)           => post<{ id: number }>('/categories', data),
   update:  (id: string | number, data: unknown) => put<unknown>(`/categories/${id}`, data),
   remove:  (id: string | number)     => del<void>(`/categories/${id}`),
+};
+
+// ===========================================================
+// Providers
+// ===========================================================
+export const ProviderApi = {
+  getAll:  ()                        => get<unknown[]>('/providers'),
+  create:  (data: unknown)           => post<{ id: number }>('/providers', data),
+  update:  (id: string | number, data: unknown) => put<unknown>(`/providers/${id}`, data),
+  remove:  (id: string | number)     => del<void>(`/providers/${id}`),
 };
 
 // ===========================================================
@@ -117,6 +126,7 @@ export const LocationApi = {
 export const StockApi = {
   getAll:  ()             => get<unknown[]>('/stock'),
   upsert:  (data: unknown) => post<unknown>('/stock', data),
+  move:    (data: unknown) => post<unknown>('/stock/move', data),
 };
 
 // ===========================================================

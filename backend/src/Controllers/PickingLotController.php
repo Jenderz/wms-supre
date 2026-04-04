@@ -91,8 +91,25 @@ class PickingLotController
         Response::json(['message' => 'Lote conformado correctamente.']);
     }
 
-    public function destroy(string $id): void
+    public function destroy(string $id, object $authUser): void
     {
+        $lot = $this->model->findById((int) $id);
+        if (!$lot) {
+            Response::error('Lote no encontrado.', 404);
+            return;
+        }
+
+        // Los lotes PENDING solo pueden eliminarse por un ADMIN (validación server-side)
+        if ($lot['status'] === 'PENDING') {
+            \App\Middleware\AuthMiddleware::requireRole($authUser, 'ADMIN');
+        }
+
+        // CONFORMED nunca se puede eliminar
+        if ($lot['status'] === 'CONFORMED') {
+            Response::error('No se puede eliminar un lote ya conformado.', 403);
+            return;
+        }
+
         $this->model->delete((int) $id);
         Response::noContent();
     }

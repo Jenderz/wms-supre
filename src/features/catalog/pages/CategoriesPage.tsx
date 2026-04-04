@@ -55,7 +55,7 @@ export const CategoriesPage: React.FC = () => {
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Categorías</h1>
-          <p className="text-slate-500 mt-2">Gestión de categorías de productos (Letra y Nombre).</p>
+          <p className="text-slate-500 mt-2">Gestión de letras de pasillo y organización del catálogo.</p>
         </div>
         <Button className="gap-2 w-full sm:w-auto" onClick={() => handleOpenModal()}>
           <Plus className="w-5 h-5" />
@@ -64,7 +64,7 @@ export const CategoriesPage: React.FC = () => {
       </header>
 
       <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-sm">
-        <div className="flex gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="flex-1">
             <Input
               icon={<Search className="w-5 h-5" />}

@@ -10,6 +10,7 @@ const Warehouse: React.FC = () => {
   const { 
     lots, 
     stock,
+    stores,
     isLoading, 
     conformLot, 
     updateStockLocation,
@@ -98,18 +99,23 @@ const Warehouse: React.FC = () => {
       {activeTab === 'PENDING_ORG' && (
         <PendingOrgTab 
           stock={filteredStock}
+          stores={stores}
           getProduct={getProduct}
           getCategory={getCategory}
+          getStore={getStore}
           getStoreLocations={getStoreLocations}
           updateStockLocation={updateStockLocation}
+          user={user}
         />
       )}
       {activeTab === 'INVENTORY' && (
         <InventoryTab 
           stock={filteredStock}
+          stores={stores}
           getProduct={getProduct}
           getCategory={getCategory}
           getLocation={getLocation}
+          getStore={getStore}
           user={user}
           updateMinStock={updateMinStock}
         />

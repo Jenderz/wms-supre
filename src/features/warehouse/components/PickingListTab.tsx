@@ -134,6 +134,8 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
     const canvas = await html2canvas(element, {
       scale: 4,
       backgroundColor: '#ffffff',
+      allowTaint: true,
+      useCORS: true,
     });
     const data = canvas.toDataURL('image/jpeg', 1.0);
     const link = document.createElement('a');
@@ -146,15 +148,42 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
     const element = document.getElementById('label-template');
     if (!element) return;
 
-    const canvas = await html2canvas(element, {
-      scale: 4,
-      backgroundColor: '#ffffff',
-    });
-    const data = canvas.toDataURL('image/jpeg', 1.0);
-    const link = document.createElement('a');
-    link.href = data;
-    link.download = `etiqueta-${selectedLot?.lotNumber}.jpg`;
-    link.click();
+    // html2canvas no interpreta unidades CSS en 'mm' correctamente.
+    // Creamos un clon con dimensiones fijas en px (50mm≈189px, 30mm≈113px @ 96dpi)
+    // y lo renderizamos fuera de pantalla para no alterar el UI.
+    const PX_PER_MM = 3.7795275591; // 96dpi
+    const widthPx  = Math.round(50 * PX_PER_MM); // 189px
+    const heightPx = Math.round(30 * PX_PER_MM); // 113px
+
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.style.position   = 'fixed';
+    clone.style.left       = '-9999px';
+    clone.style.top        = '0';
+    clone.style.width      = `${widthPx}px`;
+    clone.style.height     = `${heightPx}px`;
+    clone.style.padding    = '4px';
+    clone.style.boxSizing  = 'border-box';
+    clone.style.background = '#ffffff';
+    clone.style.overflow   = 'hidden';
+    document.body.appendChild(clone);
+
+    try {
+      const canvas = await html2canvas(clone, {
+        scale: 6, // alta resolución para impresión
+        backgroundColor: '#ffffff',
+        allowTaint: true,
+        useCORS: true,
+        width: widthPx,
+        height: heightPx,
+      });
+      const data = canvas.toDataURL('image/jpeg', 1.0);
+      const link = document.createElement('a');
+      link.href = data;
+      link.download = `etiqueta-${selectedLot?.lotNumber}.jpg`;
+      link.click();
+    } finally {
+      document.body.removeChild(clone);
+    }
     setIsLabelModalOpen(false);
   };
 
@@ -258,8 +287,9 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                     <TableHead>Producto</TableHead>
                     <TableHead>Categoría</TableHead>
                     <TableHead className="text-center">Bultos</TableHead>
-                    <TableHead className="text-center">Piezas / Bulto</TableHead>
+                    <TableHead className="text-center">Pzas. por Bulto</TableHead>
                     <TableHead className="text-center">Total Piezas</TableHead>
+                    <TableHead>Desc. Bulto</TableHead>
                     <TableHead className="text-center">QR</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -276,8 +306,24 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                           <Badge variant="outline">{category?.name || 'Sin Categoría'}</Badge>
                         </TableCell>
                         <TableCell className="text-center font-mono">{item.numberOfPackages}</TableCell>
-                        <TableCell className="text-center font-mono">{item.quantityPerPackage}</TableCell>
+                        <TableCell className="text-center">
+                          {/* Desglose de cantidades por bulto desde packagesConfig */}
+                          {item.packagesConfig && item.packagesConfig.length > 0 ? (
+                            <div className="flex flex-col gap-0.5 items-center">
+                              {item.packagesConfig.map((pkg, i) => (
+                                <span key={i} className="text-xs font-mono text-slate-600">
+                                  #{pkg.packageIndex ?? (i + 1)}: <strong>{pkg.quantity}</strong>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-xs italic">—</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-center font-bold text-blue-600">{item.quantityToEnter}</TableCell>
+                        <TableCell className="text-sm text-slate-600 italic max-w-[120px]">
+                          {item.packageDescription || <span className="text-slate-300">—</span>}
+                        </TableCell>
                         <TableCell className="text-center">
                           <Button variant="outline" size="sm" onClick={() => handleDownloadItemQR(item.productId, product?.code || '')} title="Descargar QR Individual" className="px-2">
                             <ScanLine className="w-4 h-4 text-blue-600" />
@@ -476,7 +522,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                 <TableBody>
                   {filteredLots.map(lot => {
                     const store = getStore(lot.storeId);
-                    const totalBultos = lot.items.reduce((acc, item) => acc + item.numberOfPackages, 0);
+                    const totalBultos = lot.items.reduce((acc, item) => acc + Number(item.numberOfPackages), 0);
                     
                     return (
                       <TableRow key={lot.id} className="group hover:bg-slate-50 transition-colors">
