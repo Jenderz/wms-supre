@@ -75,5 +75,6 @@ export const useCatalog = () => {
     saveCategory,
     deleteCategory,
     getCategoryName,
+    refresh: loadData,
   };
 };

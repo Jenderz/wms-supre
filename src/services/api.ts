@@ -77,6 +77,41 @@ export const CategoryApi = {
   create:  (data: unknown)           => post<{ id: number }>('/categories', data),
   update:  (id: string | number, data: unknown) => put<unknown>(`/categories/${id}`, data),
   remove:  (id: string | number)     => del<void>(`/categories/${id}`),
+  export:  () => {
+    const token = TokenService.get();
+    window.open(`${API_URL}/categories/export${token ? `?api_token=${token}` : ''}`, '_blank');
+    // Alternativa si el backend no soporta api_token en query: usar fetch + blob.
+    // Pero para simplificar, si el export asume auth, podrías necesitar pasar el token.
+    // Dado que index.php usa AuthMiddleware::verify() que mira el header Authorization,
+    // window.open no enviará el header. Usaremos fetch + blob.
+  },
+  exportCsv: async () => {
+    const token = TokenService.get();
+    const response = await fetch(`${API_URL}/categories/export`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!response.ok) throw new Error('Error al exportar');
+    return await response.blob();
+  },
+  importCsv: async (file: File) => {
+    const token = TokenService.get();
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_URL}/categories/import`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al importar');
+    }
+    return await response.json();
+  }
 };
 
 // ===========================================================

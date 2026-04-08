@@ -1,31 +1,58 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../hooks/useCatalog';
-import { Plus, Search, Edit2, Tag, Trash2 } from 'lucide-react';
+import { Plus, Search, Edit2, Tag, Trash2, X, Download, Upload } from 'lucide-react';
+import { Category } from '../../../types';
+import { CategoryApi } from '../../../services/api';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../../components/ui/Table';
 
 export const CategoriesPage: React.FC = () => {
-  const { categories, isLoading, saveCategory, deleteCategory } = useCatalog();
+  const { categories, isLoading, saveCategory, deleteCategory, refresh } = useCatalog();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ code: '', name: '' });
+  const [formData, setFormData] = useState<{ code: string, name: string, subcategories: {id?: string|number, name: string}[] }>({ code: '', name: '', subcategories: [] });
 
   const filteredCategories = categories.filter(c => 
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     c.code.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleOpenModal = (category?: { id: string, code: string, name: string }) => {
+  const handleOpenModal = (category?: Category) => {
     if (category) {
       setEditingId(category.id);
-      setFormData({ code: category.code, name: category.name });
+      setFormData({ code: category.code, name: category.name, subcategories: category.subcategories || [] });
     } else {
       setEditingId(null);
-      setFormData({ code: '', name: '' });
+      setFormData({ code: '', name: '', subcategories: [] });
     }
     setIsModalOpen(true);
+  };
+
+  const handleAddSubcategory = () => {
+    setFormData(prev => ({
+      ...prev,
+      subcategories: [...prev.subcategories, { name: '' }]
+    }));
+  };
+
+  const handleUpdateSubcategory = (index: number, name: string) => {
+    setFormData(prev => {
+      const newSubs = [...prev.subcategories];
+      newSubs[index].name = name;
+      return { ...prev, subcategories: newSubs };
+    });
+  };
+
+  const handleRemoveSubcategory = (index: number) => {
+    setFormData(prev => {
+      const newSubs = [...prev.subcategories];
+      newSubs.splice(index, 1);
+      return { ...prev, subcategories: newSubs };
+    });
   };
 
   const handleSave = () => {
@@ -36,9 +63,10 @@ export const CategoriesPage: React.FC = () => {
         name: formData.name,
         description: '',
         qrCode: '',
-        isFractional: false
-      });
-      setFormData({ code: '', name: '' });
+        isFractional: false,
+        subcategories: formData.subcategories.filter(s => s.name.trim() !== '') as any, // Typed correctly in backend anyway
+      } as Category);
+      setFormData({ code: '', name: '', subcategories: [] });
       setEditingId(null);
       setIsModalOpen(false);
     }
@@ -50,6 +78,41 @@ export const CategoriesPage: React.FC = () => {
     }
   };
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await CategoryApi.exportCsv();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'categorias.csv';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Error al exportar categorías');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    try {
+      const result = await CategoryApi.importCsv(file);
+      alert(result.message || 'Importación completada');
+      refresh();
+    } catch (error: any) {
+      alert(error.message || 'Error al importar categorías');
+    } finally {
+      setIsImporting(false);
+      e.target.value = '';
+    }
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
@@ -57,10 +120,27 @@ export const CategoriesPage: React.FC = () => {
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Categorías</h1>
           <p className="text-slate-500 mt-2">Gestión de letras de pasillo y organización del catálogo.</p>
         </div>
-        <Button className="gap-2 w-full sm:w-auto" onClick={() => handleOpenModal()}>
-          <Plus className="w-5 h-5" />
-          Nueva Categoría
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button variant="ghost" className="gap-2 border border-slate-200" onClick={() => document.getElementById('import-input')?.click()} disabled={isImporting}>
+            <Upload className="w-4 h-4" />
+            {isImporting ? 'Importando...' : 'Importar'}
+          </Button>
+          <input 
+            id="import-input" 
+            type="file" 
+            accept=".csv" 
+            className="hidden" 
+            onChange={handleImport} 
+          />
+          <Button variant="ghost" className="gap-2 border border-slate-200" onClick={handleExport} disabled={isExporting}>
+            <Download className="w-4 h-4" />
+            {isExporting ? 'Exportando...' : 'Exportar'}
+          </Button>
+          <Button className="gap-2" onClick={() => handleOpenModal()}>
+            <Plus className="w-5 h-5" />
+            Nueva Categoría
+          </Button>
+        </div>
       </header>
 
       <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-sm">
@@ -164,6 +244,40 @@ export const CategoriesPage: React.FC = () => {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
+              </div>
+
+              <div className="pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-slate-700 shadow-sm">Sub-categorías</label>
+                  <Button type="button" variant="ghost" onClick={handleAddSubcategory} className="h-8 py-0 px-2 gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 shrink-0 border border-slate-200">
+                    <Plus className="w-4 h-4" /> Añadir
+                  </Button>
+                </div>
+                {formData.subcategories.length === 0 ? (
+                  <p className="text-sm text-slate-500 italic py-2">No hay sub-categorías. Haz clic en "Añadir" para crear una.</p>
+                ) : (
+                  <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
+                    {formData.subcategories.map((sub, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <Input
+                            placeholder={`Sub-categoría ${idx + 1}...`}
+                            value={sub.name}
+                            onChange={(e) => handleUpdateSubcategory(idx, e.target.value)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSubcategory(idx)}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all flex-shrink-0"
+                          title="Eliminar Sub-categoría"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

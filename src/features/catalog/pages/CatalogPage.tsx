@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../hooks/useCatalog';
+import { useProviders } from '../hooks/useProviders';
 import { Plus, Search, Edit2, Package, Trash2, X, Upload, Download, QrCode, ScanLine } from 'lucide-react';
 import { CategoriesPage } from './CategoriesPage';
 import { ProvidersPage } from './ProvidersPage';
@@ -12,7 +13,8 @@ import { QRCodeCanvas } from 'qrcode.react';
 import { QRScannerModal } from '../../../components/QRScannerModal';
 
 export const CatalogPage: React.FC = () => {
-  const { products, categories, isLoading, getCategoryName, saveProduct, setAllProducts, deleteProduct } = useCatalog();
+  const { products, categories, isLoading, getCategoryName, saveProduct, setAllProducts, deleteProduct, refresh } = useCatalog();
+  const { providers } = useProviders();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -20,6 +22,13 @@ export const CatalogPage: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
   const [activeTab, setActiveTab] = useState<'PRODUCTS' | 'CATEGORIES' | 'PROVIDERS'>('PRODUCTS');
+
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    if (tab === 'PRODUCTS') {
+      refresh();
+    }
+  };
   
   // Form State
   const [formData, setFormData] = useState<Partial<Product>>({
@@ -31,7 +40,9 @@ export const CatalogPage: React.FC = () => {
     prices: [0],
     imageUrl: '',
     footerUrl: '',
-    enabledStores: []
+    enabledStores: [],
+    subcategoryId: '',
+    providers: ['']
   });
 
   const filteredProducts = products.filter(p => {
@@ -97,7 +108,9 @@ export const CatalogPage: React.FC = () => {
         dimensions: product.dimensions ? { ...product.dimensions } : { height: 0, width: 0, depth: 0 },
         costs: Array.isArray(product.costs) ? [...product.costs] : (product.costs ? (typeof product.costs === 'object' ? Object.values(product.costs) : [product.costs]) : [0]),
         prices: Array.isArray(product.prices) ? [...product.prices] : (product.prices ? (typeof product.prices === 'object' ? Object.values(product.prices) : [product.prices]) : [0]),
-        enabledStores: Array.isArray(product.enabledStores) ? [...product.enabledStores] : []
+        enabledStores: Array.isArray(product.enabledStores) ? [...product.enabledStores] : [],
+        subcategoryId: product.subcategoryId || '',
+        providers: Array.isArray(product.providers) ? (product.providers.length > 0 ? [...product.providers] : ['']) : ['']
       });
     } else {
       setEditingId(null);
@@ -110,7 +123,9 @@ export const CatalogPage: React.FC = () => {
         prices: [0],
         imageUrl: '',
         footerUrl: '',
-        enabledStores: []
+        enabledStores: [],
+        subcategoryId: '',
+        providers: ['']
       });
     }
     setIsModalOpen(true);
@@ -136,7 +151,9 @@ export const CatalogPage: React.FC = () => {
       prices: formData.prices?.map(p => Number(p) || 0) || [0],
       imageUrl: formData.imageUrl || '',
       footerUrl: formData.footerUrl || '',
-      enabledStores: formData.enabledStores || []
+      enabledStores: formData.enabledStores || [],
+      subcategoryId: formData.subcategoryId || null,
+      providers: formData.providers?.filter(p => !!p).map(String) || []
     };
 
     saveProduct(productToSave);
@@ -175,7 +192,7 @@ export const CatalogPage: React.FC = () => {
       {/* Navigation Tabs */}
       <div className="flex overflow-x-auto border-b border-slate-200 mb-6 no-print scrollbar-hide">
         <button
-          onClick={() => setActiveTab('PRODUCTS')}
+          onClick={() => handleTabChange('PRODUCTS')}
           className={`whitespace-nowrap px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'PRODUCTS' 
               ? 'border-blue-600 text-blue-600' 
@@ -185,7 +202,7 @@ export const CatalogPage: React.FC = () => {
           Productos
         </button>
         <button
-          onClick={() => setActiveTab('CATEGORIES')}
+          onClick={() => handleTabChange('CATEGORIES')}
           className={`whitespace-nowrap px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'CATEGORIES' 
               ? 'border-blue-600 text-blue-600' 
@@ -195,7 +212,7 @@ export const CatalogPage: React.FC = () => {
           Categorías
         </button>
         <button
-          onClick={() => setActiveTab('PROVIDERS')}
+          onClick={() => handleTabChange('PROVIDERS')}
           className={`whitespace-nowrap px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'PROVIDERS' 
               ? 'border-blue-600 text-blue-600' 
@@ -405,10 +422,9 @@ export const CatalogPage: React.FC = () => {
               </button>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {/* Información Básica */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-2">Información Básica</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+              {/* Columna Izquierda */}
+              <div className="space-y-5">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Código</label>
                   <Input 
@@ -429,7 +445,7 @@ export const CatalogPage: React.FC = () => {
                   <label className="block text-sm font-medium text-slate-700 mb-2">Categoría</label>
                   <select
                     value={formData.categoryId}
-                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value, subcategoryId: '' })}
                     className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                   >
                     <option value="">Seleccione una categoría...</option>
@@ -438,96 +454,201 @@ export const CatalogPage: React.FC = () => {
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Sub-Categoría</label>
+                  <select
+                    value={formData.subcategoryId || ''}
+                    onChange={(e) => setFormData({ ...formData, subcategoryId: e.target.value })}
+                    disabled={!formData.categoryId}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:bg-slate-50 disabled:text-slate-500"
+                  >
+                    <option value="">Seleccione una sub-categoría...</option>
+                    {categories.find(c => String(c.id) === String(formData.categoryId))?.subcategories?.map(sub => (
+                      <option key={sub.id} value={String(sub.id)}>{sub.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Dimensiones (cm)</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Alto</label>
+                      <Input 
+                        type="number"
+                        value={formData.dimensions?.height || 0}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          dimensions: { ...formData.dimensions!, height: Number(e.target.value) } 
+                        })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Ancho</label>
+                      <Input 
+                        type="number"
+                        value={formData.dimensions?.width || 0}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          dimensions: { ...formData.dimensions!, width: Number(e.target.value) } 
+                        })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Profundidad</label>
+                      <Input 
+                        type="number"
+                        value={formData.dimensions?.depth || 0}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          dimensions: { ...formData.dimensions!, depth: Number(e.target.value) } 
+                        })}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Dimensiones y Precios */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-2">Dimensiones (cm)</h3>
-                <div className="grid grid-cols-3 gap-3">
+              {/* Columna Derecha */}
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Alto</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">URL Imagen</label>
                     <Input 
-                      type="number"
-                      value={formData.dimensions?.height || 0}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
-                        dimensions: { ...formData.dimensions!, height: Number(e.target.value) } 
-                      })}
+                      placeholder="https://..." 
+                      value={formData.imageUrl || ''}
+                      onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Ancho</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">URL Pie Página</label>
                     <Input 
-                      type="number"
-                      value={formData.dimensions?.width || 0}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
-                        dimensions: { ...formData.dimensions!, width: Number(e.target.value) } 
-                      })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Largo</label>
-                    <Input 
-                      type="number"
-                      value={formData.dimensions?.depth || 0}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
-                        dimensions: { ...formData.dimensions!, depth: Number(e.target.value) } 
-                      })}
+                      placeholder="https://..." 
+                      value={formData.footerUrl || ''}
+                      onChange={(e) => setFormData({ ...formData, footerUrl: e.target.value })}
                     />
                   </div>
                 </div>
 
-                <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-2 pt-2">Costes ($)</h3>
-                <div className="space-y-2">
-                  {formData.costs?.map((cost, index) => (
-                    <Input 
-                      key={index}
-                      type="number"
-                      value={cost}
-                      onChange={(e) => {
-                        const currentCosts = Array.isArray(formData.costs) ? formData.costs : (formData.costs ? (typeof formData.costs === 'object' ? Object.values(formData.costs) : [formData.costs]) : []);
-                        const newCosts = [...currentCosts];
-                        newCosts[index] = Number(e.target.value);
-                        setFormData({ ...formData, costs: newCosts });
-                      }}
-                    />
-                  ))}
-                  {formData.costs && formData.costs.length < 2 && (
-                    <Button variant="secondary" size="sm" onClick={() => {
-                      const currentCosts = Array.isArray(formData.costs) ? formData.costs : (formData.costs ? (typeof formData.costs === 'object' ? Object.values(formData.costs) : [formData.costs]) : []);
-                      setFormData({ ...formData, costs: [...currentCosts, 0] });
-                    }}>
-                      Añadir Coste
-                    </Button>
-                  )}
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-sm font-medium text-slate-700">Proveedores</label>
+                    {(!formData.providers || formData.providers.length < 2) && (
+                      <Button type="button" variant="ghost" size="sm" onClick={() => {
+                          const current = Array.isArray(formData.providers) ? formData.providers : [];
+                          setFormData({ ...formData, providers: [...current, ''] });
+                        }} className="h-6 py-0 px-2 text-xs gap-1 text-blue-600">
+                        <Plus className="w-3 h-3" /> Añadir
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {formData.providers?.map((prov, index) => (
+                      <div key={index} className="flex gap-2">
+                        <select
+                          value={prov}
+                          onChange={(e) => {
+                            const newProviders = [...(formData.providers || [])];
+                            newProviders[index] = e.target.value;
+                            setFormData({ ...formData, providers: newProviders });
+                          }}
+                          className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        >
+                          <option value="">Seleccione un proveedor...</option>
+                          {providers.map(p => (
+                            <option key={p.id} value={String(p.id)}>{p.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newProviders = [...(formData.providers || [])];
+                            newProviders.splice(index, 1);
+                            setFormData({ ...formData, providers: newProviders });
+                          }}
+                          className="p-2 text-slate-400 hover:text-red-600 rounded-lg shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-2 pt-2">Precios ($)</h3>
-                <div className="space-y-2">
-                  {formData.prices?.map((price, index) => (
-                    <Input 
-                      key={index}
-                      type="number"
-                      value={price}
-                      onChange={(e) => {
-                        const currentPrices = Array.isArray(formData.prices) ? formData.prices : (formData.prices ? (typeof formData.prices === 'object' ? Object.values(formData.prices) : [formData.prices]) : []);
-                        const newPrices = [...currentPrices];
-                        newPrices[index] = Number(e.target.value);
-                        setFormData({ ...formData, prices: newPrices });
-                      }}
-                    />
-                  ))}
-                  {formData.prices && formData.prices.length < 5 && (
-                    <Button variant="secondary" size="sm" onClick={() => {
-                      const currentPrices = Array.isArray(formData.prices) ? formData.prices : (formData.prices ? (typeof formData.prices === 'object' ? Object.values(formData.prices) : [formData.prices]) : []);
-                      setFormData({ ...formData, prices: [...currentPrices, 0] });
-                    }}>
-                      Añadir Precio
-                    </Button>
-                  )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium text-slate-700">Costes ($)</label>
+                      {(!formData.costs || formData.costs.length < 2) && (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => {
+                            const current = Array.isArray(formData.costs) ? formData.costs : [];
+                            setFormData({ ...formData, costs: [...current, 0] });
+                          }} className="h-6 py-0 px-2 text-xs gap-1 text-blue-600">
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {formData.costs?.map((cost, index) => (
+                        <div key={index} className="flex gap-1">
+                          <Input 
+                            type="number"
+                            value={cost}
+                            onChange={(e) => {
+                              const newCosts = [...(formData.costs || [])];
+                              newCosts[index] = Number(e.target.value);
+                              setFormData({ ...formData, costs: newCosts });
+                            }}
+                          />
+                          <button type="button" onClick={() => {
+                              const newCosts = [...(formData.costs || [])];
+                              newCosts.splice(index, 1);
+                              setFormData({ ...formData, costs: newCosts });
+                            }} className="p-1 px-2 text-slate-400 hover:text-red-600 shrink-0">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium text-slate-700">Precios ($)</label>
+                      {(!formData.prices || formData.prices.length < 4) && (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => {
+                            const current = Array.isArray(formData.prices) ? formData.prices : [];
+                            setFormData({ ...formData, prices: [...current, 0] });
+                          }} className="h-6 py-0 px-2 text-xs gap-1 text-blue-600">
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {formData.prices?.map((price, index) => (
+                        <div key={index} className="flex gap-1">
+                          <Input 
+                            type="number"
+                            value={price}
+                            onChange={(e) => {
+                              const newPrices = [...(formData.prices || [])];
+                              newPrices[index] = Number(e.target.value);
+                              setFormData({ ...formData, prices: newPrices });
+                            }}
+                          />
+                          <button type="button" onClick={() => {
+                              const newPrices = [...(formData.prices || [])];
+                              newPrices.splice(index, 1);
+                              setFormData({ ...formData, prices: newPrices });
+                            }} className="p-1 px-2 text-slate-400 hover:text-red-600 shrink-0">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+
               </div>
             </div>
 

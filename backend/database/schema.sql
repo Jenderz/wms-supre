@@ -66,6 +66,14 @@ CREATE TABLE categories (
     fraction_type VARCHAR(50)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE subcategories (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name        VARCHAR(100) NOT NULL,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 CREATE TABLE providers (
     id             INT AUTO_INCREMENT PRIMARY KEY,
     code           VARCHAR(50)  NOT NULL UNIQUE,
@@ -84,10 +92,12 @@ CREATE TABLE products (
     image_url        VARCHAR(255),
     footer_url       VARCHAR(255),
     category_id      INT NOT NULL,
+    subcategory_id   INT NULL,
     dimension_height DECIMAL(10,2),
     dimension_width  DECIMAL(10,2),
     dimension_depth  DECIMAL(10,2),
-    FOREIGN KEY (category_id) REFERENCES categories(id)
+    FOREIGN KEY (category_id) REFERENCES categories(id),
+    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Normalización estricta: costos y precios en tablas separadas para analytics
@@ -114,6 +124,15 @@ CREATE TABLE product_stores (
     PRIMARY KEY (product_id, store_id),
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
     FOREIGN KEY (store_id)   REFERENCES stores(id)   ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- M:N products <-> providers
+CREATE TABLE product_providers (
+    product_id INT NOT NULL,
+    provider_id   INT NOT NULL,
+    PRIMARY KEY (product_id, provider_id),
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id)   REFERENCES providers(id)   ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================

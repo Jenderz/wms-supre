@@ -12,7 +12,9 @@ import {
   Zap,
   Tags,
   Activity,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -28,15 +30,11 @@ interface SidebarProps {
 
 type NavItem = {
   name: string;
-  path: string;
+  path?: string;
   icon: any;
   roles: string[];
   permission: string | null;
-};
-
-type NavSection = {
-  title: string;
-  items: NavItem[];
+  subItems?: { name: string; path: string; roles: string[]; permission: string | null }[];
 };
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
@@ -45,40 +43,53 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
 
   if (!user) return null;
 
-  const navSections: NavSection[] = [
+  const navItems: NavItem[] = [
     {
-      title: 'Análisis',
-      items: [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'], permission: null },
-        { name: 'Historial de Movimientos', path: '/movements', icon: Activity, roles: ['ADMIN'], permission: 'VIEW_STOCK_MOVEMENTS' },
+      name: 'Análisis',
+      icon: LayoutDashboard,
+      roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'],
+      permission: null,
+      subItems: [
+        { name: 'Dashboard', path: '/', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'], permission: null },
+        { name: 'Historial', path: '/movements', roles: ['ADMIN'], permission: 'VIEW_STOCK_MOVEMENTS' },
       ]
     },
+    { name: 'Productos', path: '/catalog', icon: Package, roles: ['ADMIN', 'COMPRAS'], permission: null },
+    { name: 'Almacenes', path: '/infrastructure', icon: Building2, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'], permission: null },
     {
-      title: 'Operaciones',
-      items: [
-        { name: 'Abastecimiento', path: '/purchasing', icon: ShoppingCart, roles: ['ADMIN', 'COMPRAS'], permission: null },
-        { name: 'Depósito (Recepción)', path: '/warehouse', icon: Warehouse, roles: ['ADMIN', 'DEPOSITO'], permission: null },
-        { name: 'Desincorporación', path: '/disincorporation', icon: Trash2, roles: ['ADMIN', 'DESINCORPORACION'], permission: null },
+      name: 'Operaciones',
+      icon: ShoppingCart,
+      roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'],
+      permission: null,
+      subItems: [
+        { name: 'Abastecimiento', path: '/purchasing', roles: ['ADMIN', 'COMPRAS'], permission: null },
+        { name: 'Depósito (Recepción)', path: '/warehouse', roles: ['ADMIN', 'DEPOSITO'], permission: null },
+        { name: 'Desincorporación', path: '/disincorporation', roles: ['ADMIN', 'DESINCORPORACION'], permission: null },
       ]
     },
-    {
-      title: 'Catálogos',
-      items: [
-        { name: 'Productos', path: '/catalog', icon: Package, roles: ['ADMIN', 'COMPRAS'], permission: null },
-        { name: 'Tiendas', path: '/infrastructure', icon: Building2, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'], permission: null },
-      ]
-    },
-    {
-      title: 'Sistema',
-      items: [
-        { name: 'Configuración', path: '/settings', icon: SettingsIcon, roles: ['ADMIN'], permission: null },
-      ]
-    }
+    { name: 'Configuración', path: '/settings', icon: SettingsIcon, roles: ['ADMIN'], permission: null }
   ];
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    'Análisis': true
+  });
+
+  const toggleExpand = (name: string) => {
+    setExpanded(prev => ({ ...prev, [name]: !prev[name] }));
+  };
+
+  const location = useLocation();
+
+  const isAllowed = (roles: string[], permission: string | null) => {
+    if (permission) {
+      return user.role === 'ADMIN' || (roles.includes(user.role) && (user.permissions ?? []).includes(permission));
+    }
+    return roles.includes(user.role);
   };
 
   return (
@@ -100,46 +111,77 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
         </div>
       </div>
 
-      <nav className="flex-1 px-4 space-y-6 overflow-y-auto pb-6">
-        {navSections.map((section) => {
-          const allowedItems = section.items.filter(item => {
-            // Si el ítem requiere un permiso específico, verificar:
-            // - ADMIN siempre puede verlo
-            // - Otros roles lo ven solo si tienen el permiso en su lista
-            if (item.permission) {
-              return user.role === 'ADMIN' || 
-                (item.roles.includes(user.role) && (user.permissions ?? []).includes(item.permission));
-            }
-            return item.roles.includes(user.role);
-          });
-          if (allowedItems.length === 0) return null;
+      <nav className="flex-1 px-4 space-y-2 overflow-y-auto pb-6">
+        {navItems.map((item) => {
+          if (!isAllowed(item.roles, item.permission)) return null;
 
-          return (
-            <div key={section.title}>
-              <h3 className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                {section.title}
-              </h3>
-              <div className="space-y-1">
-                {allowedItems.map((item) => (
-                  <NavLink
-                    key={item.name}
-                    to={item.path}
-                    onClick={() => setIsOpen(false)}
-                    className={({ isActive }) =>
-                      cn(
-                        'flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200',
-                        isActive 
-                          ? 'bg-blue-50 text-blue-700' 
-                          : 'hover:bg-slate-50 hover:text-slate-900 text-slate-700'
-                      )
-                    }
-                  >
+          if (item.subItems) {
+            const allowedSubItems = item.subItems.filter(sub => isAllowed(sub.roles, sub.permission));
+            if (allowedSubItems.length === 0) return null;
+
+            const isExpanded = expanded[item.name];
+            return (
+              <div key={item.name} className="space-y-1">
+                <button
+                  onClick={() => toggleExpand(item.name)}
+                  className="flex items-center justify-between w-full px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-3">
                     <item.icon className="w-5 h-5" />
                     <span className="font-medium text-sm">{item.name}</span>
-                  </NavLink>
-                ))}
+                  </div>
+                  {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                </button>
+                {isExpanded && (
+                  <div className="pl-11 pr-3 space-y-1 pb-2">
+                    {allowedSubItems.map(subItem => (
+                      <NavLink
+                        key={subItem.name}
+                        to={subItem.path}
+                        onClick={() => setIsOpen(false)}
+                        className={({ isActive }) =>
+                          cn(
+                            'block py-1.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 relative',
+                            isActive 
+                              ? 'text-blue-700 bg-blue-50' 
+                              : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                          )
+                        }
+                      >
+                        {({ isActive }) => (
+                          <>
+                            {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-blue-600 shadow-[2px_0_4px_rgba(37,99,235,0.4)] rounded-r-full" />}
+                            {subItem.name}
+                          </>
+                        )}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
+            );
+          }
+
+          // Item sin hijos
+          if (!item.path) return null;
+
+          return (
+            <NavLink
+              key={item.name}
+              to={item.path}
+              onClick={() => setIsOpen(false)}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200',
+                  isActive 
+                    ? 'bg-blue-50 text-blue-700' 
+                    : 'hover:bg-slate-50 hover:text-slate-900 text-slate-700'
+                )
+              }
+            >
+              <item.icon className="w-5 h-5" />
+              <span className="font-medium text-sm">{item.name}</span>
+            </NavLink>
           );
         })}
       </nav>

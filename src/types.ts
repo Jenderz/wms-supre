@@ -21,6 +21,11 @@ export interface User {
   assignedStores?: string[]; // IDs of stores this user can manage (e.g., for COMPRAS)
 }
 
+export interface Subcategory {
+  id?: string | number;
+  name: string;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -29,6 +34,7 @@ export interface Category {
   qrCode: string;
   isFractional: boolean;
   fractionType?: 'Litro' | 'Metro' | 'Kilo';
+  subcategories?: Subcategory[];
 }
 
 export interface Provider {
@@ -48,6 +54,8 @@ export interface Product {
   imageUrl: string;
   footerUrl: string;
   categoryId: string;
+  subcategoryId?: string | null;
+  providers?: string[]; // IDs de proveedores
   dimensions: {
     height: number;
     width: number;

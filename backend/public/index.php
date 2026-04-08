@@ -83,6 +83,8 @@ try {
 
     // --- Categories ---
     route('GET',    '/categories',      fn() => (new CategoryController())->index());
+    route('GET',    '/categories/export', fn() => (new CategoryController())->export());
+    route('POST',   '/categories/import', fn() => (new CategoryController())->import());
     route('POST',   '/categories',      fn() => (new CategoryController())->store());
     route('PUT',    '/categories/{id}', fn($params) => (new CategoryController())->update($params['id']));
     route('DELETE', '/categories/{id}', fn($params) => (new CategoryController())->destroy($params['id']));
