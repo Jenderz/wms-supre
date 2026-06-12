@@ -23,8 +23,8 @@ class StockController
     public function upsert(): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
-        if (empty($data['productId']) || empty($data['storeId']) || !isset($data['quantity'])) {
-            Response::error('productId, storeId y quantity son requeridos.', 400);
+        if (empty($data['productId']) || empty($data['warehouseId']) || !isset($data['quantity'])) {
+            Response::error('productId, warehouseId y quantity son requeridos.', 400);
             return;
         }
         $this->model->upsert($data);
@@ -34,8 +34,8 @@ class StockController
     public function move(object $authUser): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
-        if (empty($data['productId']) || empty($data['storeId']) || empty($data['toLocationId']) || empty($data['quantity'])) {
-            Response::error('productId, storeId, toLocationId y quantity son requeridos.', 400);
+        if (empty($data['productId']) || empty($data['warehouseId']) || empty($data['toLocationId']) || empty($data['quantity'])) {
+            Response::error('productId, warehouseId, toLocationId y quantity son requeridos.', 400);
             return;
         }
 
@@ -43,7 +43,7 @@ class StockController
         
         $this->model->moveStock(
             (int)$data['productId'], 
-            (int)$data['storeId'], 
+            (int)$data['warehouseId'], 
             $fromLocationId, 
             (int)$data['toLocationId'], 
             (float)$data['quantity'],

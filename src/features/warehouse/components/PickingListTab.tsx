@@ -9,6 +9,8 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '.
 import { Badge } from '../../../components/ui/Badge';
 import { Input } from '../../../components/ui/Input';
 import { QRScannerModal } from '../../../components/QRScannerModal';
+import { useLockedAction } from '../../../hooks/useLockedAction';
+import { LockModal } from '../../../components/LockModal';
 
 interface PickingListTabProps {
   lots: PickingLot[];
@@ -16,7 +18,7 @@ interface PickingListTabProps {
   getUser: (id: string) => any;
   getProduct: (id: string) => any;
   getCategory: (id: string) => any;
-  conformLot: (lotId: string, locations: Record<string, string>, userId: string) => Promise<void>;
+  conformLot: (lotId: string, warehouseSpaces: Record<string, string>, userId: string) => Promise<void>;
   user: any;
   isLoading: boolean;
 }
@@ -31,6 +33,8 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
   user,
   isLoading
 }) => {
+  const lockConform = useLockedAction('WAREHOUSE', 'CONFORM');
+
   const [selectedLot, setSelectedLot] = useState<PickingLot | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'CONFORMED'>('ALL');
@@ -46,7 +50,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
     quantity: true,
     description: false,
     date: false,
-    store: false,
+    Warehouse: false,
     category: false,
     letter: false,
     code: false
@@ -54,7 +58,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
 
   const filteredLots = lots.filter(lot => {
     const matchesSearch = lot.lotNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          getStore(lot.storeId)?.name.toLowerCase().includes(searchTerm.toLowerCase());
+                          getStore(lot.warehouseId)?.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'ALL' || lot.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -72,7 +76,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
   const handlePrintPicking = () => {
     if (!selectedLot) return;
     
-    const store = getStore(selectedLot.storeId);
+    const Warehouse = getStore(selectedLot.warehouseId);
     const creator = getUser(selectedLot.createdBy);
     
     const printContent = `
@@ -91,7 +95,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
         <body>
           <div class="header">
             <div class="title">Picking - ${selectedLot.lotNumber}</div>
-            <div>Tienda: ${store?.name}</div>
+            <div>Almac�n: ${Warehouse?.name}</div>
             <div>Creador: ${creator?.name}</div>
             <div>Fecha: ${format(new Date(selectedLot.createdAt), 'dd-MM-yy')}</div>
           </div>
@@ -188,7 +192,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
   };
 
   if (selectedLot) {
-    const store = getStore(selectedLot.storeId);
+    const Warehouse = getStore(selectedLot.warehouseId);
     const creator = getUser(selectedLot.createdBy);
     const conformer = selectedLot.conformedBy ? getUser(selectedLot.conformedBy) : null;
 
@@ -225,7 +229,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
               Etiqueta de Bulto
             </Button>
             {selectedLot.status === 'PENDING' && (
-              <Button onClick={handleConform} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20">
+              <Button onClick={() => lockConform.execute(handleConform)} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20">
                 <CheckCircle2 className="w-5 h-5" />
                 Conformar Lote
               </Button>
@@ -238,8 +242,8 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
             <h3 className="text-sm font-medium text-slate-500 mb-4 uppercase tracking-wider">Detalles del Lote</h3>
             <div className="space-y-3">
               <div className="flex justify-between">
-                <span className="text-slate-500">Tienda Destino:</span>
-                <span className="font-medium text-slate-900">{store?.name}</span>
+                <span className="text-slate-500">Almac�n Destino:</span>
+                <span className="font-medium text-slate-900">{Warehouse?.name}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Creado por:</span>
@@ -412,8 +416,8 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                   Incluir Fecha
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={selectedLabelFields.store} onChange={() => setSelectedLabelFields({...selectedLabelFields, store: !selectedLabelFields.store})} />
-                  Incluir Tienda
+                  <input type="checkbox" checked={selectedLabelFields.Warehouse} onChange={() => setSelectedLabelFields({...selectedLabelFields, Warehouse: !selectedLabelFields.Warehouse})} />
+                  Incluir Almac�n
                 </label>
               </div>
               <div className="flex justify-center overflow-hidden bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -423,7 +427,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                       const item = selectedLot.items.find(i => i.id === selectedLabelItemId) || selectedLot.items[0];
                       const product = item ? getProduct(item.productId) : null;
                       const category = product ? getCategory(product.categoryId) : null;
-                      const store = getStore(selectedLot.storeId);
+                      const Warehouse = getStore(selectedLot.warehouseId);
                       
                       return (
                         <>
@@ -435,7 +439,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                           {selectedLabelFields.quantity && <div className="whitespace-nowrap">Cant. Pzas Internas: {item?.quantityPerPackage} (Total Pzas: {item?.quantityToEnter})</div>}
                           {selectedLabelFields.description && <div className="whitespace-nowrap truncate">Desc: {selectedLot.description}</div>}
                           {selectedLabelFields.date && <div className="whitespace-nowrap">Fecha: {format(new Date(selectedLot.createdAt), 'dd-MM-yy')}</div>}
-                          {selectedLabelFields.store && <div className="whitespace-nowrap">Tienda: {store?.name}</div>}
+                          {selectedLabelFields.Warehouse && <div className="whitespace-nowrap">Almac�n: {Warehouse?.name}</div>}
                         </>
                       );
                     })()}
@@ -481,7 +485,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input 
-                placeholder="Buscar por lote o tienda..." 
+                placeholder="Buscar por lote o Almac�n..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 py-2 h-auto w-full"
@@ -511,7 +515,7 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Lote</TableHead>
-                    <TableHead>Tienda</TableHead>
+                    <TableHead>Almac�n</TableHead>
                     <TableHead>Fecha</TableHead>
                     <TableHead className="text-center">Items</TableHead>
                     <TableHead className="text-center">Bultos Totales</TableHead>
@@ -521,13 +525,13 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
                 </TableHeader>
                 <TableBody>
                   {filteredLots.map(lot => {
-                    const store = getStore(lot.storeId);
+                    const Warehouse = getStore(lot.warehouseId);
                     const totalBultos = lot.items.reduce((acc, item) => acc + Number(item.numberOfPackages), 0);
                     
                     return (
                       <TableRow key={lot.id} className="group hover:bg-slate-50 transition-colors">
                         <TableCell className="font-mono font-medium text-blue-600">{lot.lotNumber}</TableCell>
-                        <TableCell className="font-medium text-slate-900">{store?.name || 'Desconocida'}</TableCell>
+                        <TableCell className="font-medium text-slate-900">{Warehouse?.name || 'Desconocida'}</TableCell>
                         <TableCell className="text-slate-500">{format(new Date(lot.createdAt), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant="secondary">{lot.items.length}</Badge>
@@ -572,6 +576,9 @@ export const PickingListTab: React.FC<PickingListTabProps> = ({
         onClose={() => setIsScannerOpen(false)}
         onScan={(code) => setSearchTerm(code)}
       />
+
+      {/* Modales de Llaves de Acceso */}
+      <LockModal {...lockConform.lockModalProps} />
     </div>
   );
 };

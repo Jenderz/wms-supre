@@ -19,9 +19,9 @@ class User
     {
         $stmt = $this->db->prepare(
             "SELECT u.id, u.name, u.username, u.password_hash, u.role, u.permissions,
-                    GROUP_CONCAT(us.store_id) as assigned_stores
+                    GROUP_CONCAT(uw.warehouse_id) as assigned_stores
              FROM users u
-             LEFT JOIN user_stores us ON u.id = us.user_id
+             LEFT JOIN user_warehouses uw ON u.id = uw.user_id
              WHERE u.username = :username
              GROUP BY u.id
              LIMIT 1"
@@ -41,9 +41,9 @@ class User
     {
         $stmt = $this->db->query(
             "SELECT u.id, u.name, u.username, u.role, u.permissions,
-                    GROUP_CONCAT(us.store_id) as assigned_stores
+                    GROUP_CONCAT(uw.warehouse_id) as assigned_stores
              FROM users u
-             LEFT JOIN user_stores us ON u.id = us.user_id
+             LEFT JOIN user_warehouses uw ON u.id = uw.user_id
              GROUP BY u.id"
         );
         return array_map(function ($row) {
@@ -120,11 +120,11 @@ class User
 
     private function syncStores(int $userId, array $storeIds): void
     {
-        $this->db->prepare("DELETE FROM user_stores WHERE user_id = :uid")->execute([':uid' => $userId]);
+        $this->db->prepare("DELETE FROM user_warehouses WHERE user_id = :uid")->execute([':uid' => $userId]);
         if (empty($storeIds)) return;
-        $stmt = $this->db->prepare("INSERT INTO user_stores (user_id, store_id) VALUES (:uid, :sid)");
+        $stmt = $this->db->prepare("INSERT INTO user_warehouses (user_id, warehouse_id) VALUES (:uid, :wid)");
         foreach ($storeIds as $storeId) {
-            $stmt->execute([':uid' => $userId, ':sid' => (int) $storeId]);
+            $stmt->execute([':uid' => $userId, ':wid' => (int) $storeId]);
         }
     }
 }

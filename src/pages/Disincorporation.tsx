@@ -18,9 +18,9 @@ const DisincorporationPage: React.FC = () => {
   const { 
     disincorporations, 
     products, 
-    stores, 
+    warehouses, 
     stock, 
-    locations, 
+    warehouseSpaces, 
     isLoading, 
     saveDisincorporation, 
     deleteDisincorporation,
@@ -58,7 +58,7 @@ const DisincorporationPage: React.FC = () => {
     });
     setFormItems([]);
     setDescription('');
-    setSelectedStoreId(stores[0]?.id || '');
+    setSelectedStoreId(warehouses[0]?.id || '');
     setView('FORM');
   };
 
@@ -66,7 +66,7 @@ const DisincorporationPage: React.FC = () => {
     setCurrentDisincorporation(disincorporation);
     setFormItems(disincorporation.items);
     setDescription(disincorporation.description || '');
-    setSelectedStoreId(disincorporation.storeId || '');
+    setSelectedStoreId(disincorporation.warehouseId || '');
     setView('FORM');
   };
 
@@ -84,7 +84,7 @@ const DisincorporationPage: React.FC = () => {
   const handleSave = (status: 'DRAFT' | 'APPROVED') => {
     setError(null);
     if (!selectedStoreId) {
-      setError('Seleccione una tienda');
+      setError('Seleccione una Almac閚');
       return;
     }
     if (formItems.length === 0) {
@@ -94,7 +94,7 @@ const DisincorporationPage: React.FC = () => {
 
     const newDisincorporation: Disincorporation = {
       id: currentDisincorporation.id || undefined,
-      storeId: selectedStoreId,
+      warehouseId: selectedStoreId,
       description,
       items: formItems,
       status: 'DRAFT', // We save as draft first
@@ -134,7 +134,7 @@ const DisincorporationPage: React.FC = () => {
     const newItem: DisincorporationItem = {
       id: uuidv4(),
       productId: selectedProduct.id,
-      locationId: stockItem.locationId,
+      warehouseSpaceId: stockItem.warehouseSpaceId,
       quantity,
       reason,
       notes
@@ -157,7 +157,7 @@ const DisincorporationPage: React.FC = () => {
 
   const handleExportPDF = (d: Disincorporation) => {
     const doc = new jsPDF();
-    const storeName = stores.find(s => s.id === d.storeId)?.name || 'Tienda Desconocida';
+    const storeName = warehouses.find(s => s.id === d.warehouseId)?.name || 'Almac閚 Desconocida';
     const date = format(new Date(d.createdAt), 'dd/MM/yyyy HH:mm');
 
     // Header
@@ -176,14 +176,14 @@ const DisincorporationPage: React.FC = () => {
 
     // Info
     doc.setFontSize(10);
-    doc.text(`Tienda: ${storeName}`, 14, 45);
+    doc.text(`Almac閚: ${storeName}`, 14, 45);
     doc.text(`Descripci贸n: ${d.description || '-'}`, 14, 52);
 
     // Table
     const tableData = d.items.map(item => {
       const product = products.find(p => p.id === item.productId);
-      const location = locations.find(l => l.id === item.locationId);
-      const locStr = location ? `${location.room}-${location.shelf}-${location.cubicle}` : 'N/A';
+      const WarehouseSpace = warehouseSpaces.find(l => l.id === item.warehouseSpaceId);
+      const locStr = WarehouseSpace ? `${WarehouseSpace.room}-${WarehouseSpace.shelf}-${WarehouseSpace.cubicle}` : 'N/A';
       
       const reasonMap: Record<string, string> = {
         DAMAGED: 'Da帽ado',
@@ -216,7 +216,7 @@ const DisincorporationPage: React.FC = () => {
     doc.save(`Desincorporacion_${format(new Date(d.createdAt), 'yyyyMMdd_HHmm')}.pdf`);
   };
 
-  // Solo mostramos productos que tienen stock disponible EN la tienda seleccionada
+  // Solo mostramos productos que tienen stock disponible EN la Almac閚 seleccionada
   const filteredProducts = productSearch
     ? products.filter(p => {
         const matchesSearch = (
@@ -224,11 +224,11 @@ const DisincorporationPage: React.FC = () => {
           p.code.includes(productSearch)
         );
         if (!matchesSearch) return false;
-        // Debe tener al menos 1 unidad en stock en la tienda seleccionada
-        if (!selectedStoreId) return true; // Si no hay tienda a煤n, mostrar todos los que hacen match
+        // Debe tener al menos 1 unidad en stock en la Almac閚 seleccionada
+        if (!selectedStoreId) return true; // Si no hay Almac閚 a煤n, mostrar todos los que hacen match
         const hasStock = stock.some(s =>
           String(s.productId) === String(p.id) &&
-          String(s.storeId) === String(selectedStoreId) &&
+          String(s.warehouseId) === String(selectedStoreId) &&
           s.quantity > 0
         );
         return hasStock;
@@ -236,17 +236,17 @@ const DisincorporationPage: React.FC = () => {
     : [];
 
   const availableStock = selectedProduct ? stock.filter(s => {
-    if (String(s.productId) !== String(selectedProduct.id) || String(s.storeId) !== String(selectedStoreId)) return false;
+    if (String(s.productId) !== String(selectedProduct.id) || String(s.warehouseId) !== String(selectedStoreId)) return false;
     
     // Calculate how much of this specific stock is already in the form
     const quantityInForm = formItems
-      .filter(item => item.productId === s.productId && item.locationId === s.locationId)
+      .filter(item => item.productId === s.productId && item.warehouseSpaceId === s.warehouseSpaceId)
       .reduce((sum, item) => sum + Number(item.quantity), 0);
       
     return (s.quantity - quantityInForm) > 0;
   }).map(s => {
     const quantityInForm = formItems
-      .filter(item => item.productId === s.productId && item.locationId === s.locationId)
+      .filter(item => item.productId === s.productId && item.warehouseSpaceId === s.warehouseSpaceId)
       .reduce((sum, item) => sum + Number(item.quantity), 0);
     return { ...s, availableQuantity: s.quantity - quantityInForm };
   }) : [];
@@ -282,17 +282,17 @@ const DisincorporationPage: React.FC = () => {
             <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tienda</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Almac閚</label>
                   <select 
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-70"
                     value={selectedStoreId}
                     onChange={(e) => {
                       setSelectedStoreId(e.target.value);
-                      setFormItems([]); // Clear items if store changes
+                      setFormItems([]); // Clear items if Warehouse changes
                     }}
-                    disabled={formItems.length > 0 || currentDisincorporation.status === 'APPROVED'} // Lock store if items added or approved
+                    disabled={formItems.length > 0 || currentDisincorporation.status === 'APPROVED'} // Lock Warehouse if items added or approved
                   >
-                    {stores.map(s => (
+                    {warehouses.map(s => (
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
@@ -319,7 +319,7 @@ const DisincorporationPage: React.FC = () => {
                   <div className="space-y-3">
                     {formItems.map(item => {
                       const product = products.find(p => p.id === item.productId);
-                      const location = locations.find(l => l.id === item.locationId);
+                      const WarehouseSpace = warehouseSpaces.find(l => l.id === item.warehouseSpaceId);
                       return (
                         <div key={item.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
                           <div className="flex items-center gap-3">
@@ -329,7 +329,7 @@ const DisincorporationPage: React.FC = () => {
                             <div>
                               <p className="font-medium text-slate-900">{product?.name}</p>
                               <p className="text-xs text-slate-500">
-                                {location?.room} - {location?.shelf} - {location?.cubicle} | Raz贸n: {item.reason}
+                                {WarehouseSpace?.room} - {WarehouseSpace?.shelf} - {WarehouseSpace?.cubicle} | Raz贸n: {item.reason}
                               </p>
                             </div>
                           </div>
@@ -415,8 +415,8 @@ const DisincorporationPage: React.FC = () => {
                       ) : (
                         <div className="px-4 py-3 text-sm text-slate-500 italic">
                           {selectedStoreId
-                            ? 'No hay productos con stock en esta tienda que coincidan con la b煤squeda.'
-                            : 'Seleccione una tienda primero.'}
+                            ? 'No hay productos con stock en esta Almac閚 que coincidan con la b煤squeda.'
+                            : 'Seleccione una Almac閚 primero.'}
                         </div>
                       )}
                     </div>
@@ -439,7 +439,7 @@ const DisincorporationPage: React.FC = () => {
                       >
                         <option value="">Seleccione ubicaci贸n...</option>
                         {availableStock.map(s => {
-                          const loc = locations.find(l => l.id === s.locationId);
+                          const loc = warehouseSpaces.find(l => l.id === s.warehouseSpaceId);
                           return (
                             <option key={s.id} value={s.id}>
                               {loc ? `${loc.room} - ${loc.shelf} - ${loc.cubicle}` : 'Sin ubicaci贸n'} (Stock: {s.availableQuantity})
@@ -536,7 +536,7 @@ const DisincorporationPage: React.FC = () => {
             <TableHeader>
               <TableRow>
                 <TableHead>Fecha</TableHead>
-                <TableHead>Tienda</TableHead>
+                <TableHead>Almac閚</TableHead>
                 <TableHead>Descripci贸n</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Estado</TableHead>
@@ -550,7 +550,7 @@ const DisincorporationPage: React.FC = () => {
                     {format(new Date(d.createdAt), 'dd MMM yyyy')}
                   </TableCell>
                   <TableCell>
-                    {stores.find(s => s.id === d.storeId)?.name}
+                    {warehouses.find(s => s.id === d.warehouseId)?.name}
                   </TableCell>
                   <TableCell className="text-slate-500">
                     {d.description || 'Sin descripci贸n'}

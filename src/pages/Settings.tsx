@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { User, Role, Permission, Store } from '../types';
-import { UserApi, StoreApi, ProductApi, CategoryApi, StockApi, MovementApi } from '../services/api';
+import { User, Role, Permission, Warehouse } from '../types';
+import { UserApi, WarehouseApi, ProductApi, CategoryApi, StockApi, MovementApi } from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table';
 import { Badge } from '../components/ui/Badge';
-import { Shield, Users, Plus, Edit2, Trash2, X, Check, Store as StoreIcon, Settings2, Database, Download } from 'lucide-react';
+import { Shield, Users, Plus, Edit2, Trash2, X, Check, Warehouse as StoreIcon, Settings2, Database, Download } from 'lucide-react';
 
 const AVAILABLE_PERMISSIONS: { id: Permission; label: string; description: string }[] = [
   { id: 'MANAGE_USERS', label: 'Gestionar Usuarios', description: 'Crear, editar y eliminar usuarios y roles.' },
   { id: 'EDIT_MIN_STOCK', label: 'Editar Stock Mínimo', description: 'Modificar el valor de stock mínimo de los productos.' },
   { id: 'MANAGE_CATALOG', label: 'Gestionar Catálogo', description: 'Crear y editar productos y categorías.' },
-  { id: 'MANAGE_INFRASTRUCTURE', label: 'Gestionar Infraestructura', description: 'Administrar tiendas y ubicaciones físicas.' },
+  { id: 'MANAGE_INFRASTRUCTURE', label: 'Gestionar Infraestructura', description: 'Administrar Almacenes y Espacios de Almac�n físicas.' },
   { id: 'APPROVE_PURCHASES', label: 'Aprobar Compras', description: 'Crear y aprobar órdenes de compra/abastecimiento.' },
   { id: 'MANAGE_DISINCORPORATION', label: 'Desincorporación', description: 'Gestionar la desincorporación de productos.' },
   { id: 'VIEW_REPORTS', label: 'Ver Reportes', description: 'Acceso a reportes y analíticas del sistema.' },
@@ -27,7 +27,7 @@ const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'users' | 'preferences' | 'data'>('users');
   
   const [users, setUsers] = useState<User[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [warehouses, setStores] = useState<Warehouse[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   
@@ -36,7 +36,7 @@ const Settings: React.FC = () => {
     name: '',
     role: 'DEPOSITO',
     permissions: [],
-    assignedStores: []
+    assignedWarehouses: []
   });
 
   // System Preferences State (Mock for now, could be saved in localStorage)
@@ -57,10 +57,10 @@ const Settings: React.FC = () => {
     try {
       const [usersData, storesData] = await Promise.all([
         UserApi.getAll(),
-        StoreApi.getAll(),
+        WarehouseApi.getAll(),
       ]);
       setUsers(usersData as User[]);
-      setStores(storesData as Store[]);
+      setStores(storesData as Warehouse[]);
     } catch (err) {
       console.error('Error cargando configuración:', err);
     }
@@ -80,7 +80,7 @@ const Settings: React.FC = () => {
         password: user.password || '',
         role: user.role,
         permissions: user.permissions || [],
-        assignedStores: user.assignedStores || []
+        assignedWarehouses: user.assignedWarehouses || []
       });
     } else {
       setEditingUser(null);
@@ -88,7 +88,7 @@ const Settings: React.FC = () => {
         name: '',
         role: 'DEPOSITO',
         permissions: [],
-        assignedStores: []
+        assignedWarehouses: []
       });
     }
     setIsModalOpen(true);
@@ -103,7 +103,7 @@ const Settings: React.FC = () => {
       password: formData.password || 'password',
       role: formData.role as Role,
       permissions: formData.permissions,
-      assignedStores: formData.assignedStores,
+      assignedWarehouses: formData.assignedWarehouses,
     };
 
     if (editingUser) {
@@ -137,13 +137,13 @@ const Settings: React.FC = () => {
     });
   };
 
-  const toggleStore = (storeId: string) => {
+  const toggleStore = (warehouseId: string) => {
     setFormData(prev => {
-      const current = prev.assignedStores || [];
-      if (current.includes(storeId)) {
-        return { ...prev, assignedStores: current.filter(id => id !== storeId) };
+      const current = prev.assignedWarehouses || [];
+      if (current.includes(warehouseId)) {
+        return { ...prev, assignedWarehouses: current.filter(id => id !== warehouseId) };
       } else {
-        return { ...prev, assignedStores: [...current, storeId] };
+        return { ...prev, assignedWarehouses: [...current, warehouseId] };
       }
     });
   };
@@ -154,11 +154,11 @@ const Settings: React.FC = () => {
         UserApi.getAll(),
         ProductApi.getAll(),
         CategoryApi.getAll(),
-        StoreApi.getAll(),
+        WarehouseApi.getAll(),
         StockApi.getAll(),
         MovementApi.getAll(),
       ]);
-      const data = { users: usersData, products: productsData, categories: categoriesData, stores: storesData, stock: stockData, movements: movementsData };
+      const data = { users: usersData, products: productsData, categories: categoriesData, warehouses: storesData, stock: stockData, movements: movementsData };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -235,7 +235,7 @@ const Settings: React.FC = () => {
                   <TableHead>Nombre</TableHead>
                   <TableHead>Rol</TableHead>
                   <TableHead>Permisos Especiales</TableHead>
-                  <TableHead>Tiendas Asignadas</TableHead>
+                  <TableHead>Almacenes Asignadas</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -268,13 +268,13 @@ const Settings: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {user.assignedStores?.length ? (
-                          user.assignedStores.map(storeId => {
-                            const store = stores.find(s => s.id === storeId);
+                        {user.assignedWarehouses?.length ? (
+                          user.assignedWarehouses.map(warehouseId => {
+                            const Warehouse = warehouses.find(s => s.id === warehouseId);
                             return (
-                              <span key={storeId} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                              <span key={warehouseId} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
                                 <StoreIcon className="w-3 h-3" />
-                                {store?.name || 'Desconocida'}
+                                {Warehouse?.name || 'Desconocida'}
                               </span>
                             );
                           })
@@ -379,7 +379,7 @@ const Settings: React.FC = () => {
             <div className="p-4 border border-blue-100 bg-blue-50 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h3 className="font-bold text-blue-900">Exportar Base de Datos</h3>
-                <p className="text-sm text-blue-700 mt-1">Descarga un archivo JSON con todo el inventario, usuarios, tiendas y movimientos históricos.</p>
+                <p className="text-sm text-blue-700 mt-1">Descarga un archivo JSON con todo el inventario, usuarios, Almacenes y movimientos históricos.</p>
               </div>
               <Button onClick={handleExportData} className="flex-shrink-0 gap-2">
                 <Download className="w-4 h-4" />
@@ -458,18 +458,18 @@ const Settings: React.FC = () => {
                 </div>
               </div>
 
-              {/* Tiendas Asignadas (Visible para COMPRAS o DEPOSITO) */}
+              {/* Almacenes Asignadas (Visible para COMPRAS o DEPOSITO) */}
               {(formData.role === 'COMPRAS' || formData.role === 'DEPOSITO') && (
                 <div className="space-y-4">
-                  <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Tiendas Asignadas</h3>
-                  <p className="text-sm text-slate-500 mb-2">Selecciona las tiendas a las que este usuario tiene acceso. Si no seleccionas ninguna, tendrá acceso a todas (según su rol).</p>
+                  <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Almacenes Asignadas</h3>
+                  <p className="text-sm text-slate-500 mb-2">Selecciona las Almacenes a las que este usuario tiene acceso. Si no seleccionas ninguna, tendrá acceso a todas (según su rol).</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {stores.map(store => {
-                      const isSelected = formData.assignedStores?.includes(store.id);
+                    {warehouses.map(Warehouse => {
+                      const isSelected = formData.assignedWarehouses?.includes(Warehouse.id);
                       return (
                         <div 
-                          key={store.id}
-                          onClick={() => toggleStore(store.id)}
+                          key={Warehouse.id}
+                          onClick={() => toggleStore(Warehouse.id)}
                           className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
                             isSelected 
                               ? 'bg-blue-50 border-blue-200' 
@@ -484,7 +484,7 @@ const Settings: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <StoreIcon className={`w-4 h-4 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`} />
                             <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>
-                              {store.name}
+                              {Warehouse.name}
                             </span>
                           </div>
                         </div>

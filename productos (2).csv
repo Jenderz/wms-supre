@@ -1,0 +1,8 @@
+ID,Código,Nombre,Categoría,Alto,Ancho,Largo,Costes,Precios,Imagen,Footer,Tiendas
+1,A0002,TABLET,1,2.00,3.00,4.00,2.2000,6.2000,,,
+2,10225,telefono0,1,2.00,3.00,2.00,200.000,300.000,,,
+10,PROD-212,Jender,1,23.00,221.00,23.00,20.0000|26.0000,100.0000|200.0000,https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRN0WgVwW-_RD-ph8bDtglOb_Mb17Tq_GTKfw&s,https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRN0WgVwW-_RD-ph8bDtglOb_Mb17Tq_GTKfw&s,
+11,01conec,Conector h4,2,1.00,1.00,1.00,5.000,1.2000,https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQnrsHLm90K1XQ4DCSWK-2beVpvTTrh4pX9mkFYAY3R7mQE5vUpQ9uUnQU&s=10,,
+12,02conec,conector h7,2,1,1,1,0.5,1,https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_oVxlHleJrhhROejXV0sCbykqy7bweFdLOw&s,,
+13,03conec,conector h11,2,1,1,1,"0,5",1,https://http2.mlstatic.com/D_NQ_NP_736411-MLV78126891926_082024-O.webp,,
+14,04conec,conector h13,2,1,1,1,1,2,https://afautopartes.mx/cdn/shop/files/AF12079.png?v=1745346464,,

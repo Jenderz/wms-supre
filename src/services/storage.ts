@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Category, Product, Store, Location, Stock, PickingLot, User, Disincorporation, StockMovement } from '../types';
+import { Category, Product, Warehouse, WarehouseSpace, Stock, PickingLot, User, Disincorporation, StockMovement } from '../types';
 
 const PREFIX = 'supre_wms_';
 
@@ -56,34 +56,34 @@ export const StorageService = {
     setItems('products', filtered);
   },
 
-  // Stores
-  getStores: () => getItems<Store>('stores'),
-  saveStore: (store: Store) => {
-    const stores = getItems<Store>('stores');
-    const index = stores.findIndex(s => s.id === store.id);
-    if (index >= 0) stores[index] = store;
-    else stores.push(store);
-    setItems('stores', stores);
+  // warehouses
+  getStores: () => getItems<Warehouse>('warehouses'),
+  saveStore: (Warehouse: Warehouse) => {
+    const warehouses = getItems<Warehouse>('warehouses');
+    const index = warehouses.findIndex(s => s.id === Warehouse.id);
+    if (index >= 0) warehouses[index] = Warehouse;
+    else warehouses.push(Warehouse);
+    setItems('warehouses', warehouses);
   },
   deleteStore: (id: string) => {
-    const stores = getItems<Store>('stores');
-    const filtered = stores.filter(s => s.id !== id);
-    setItems('stores', filtered);
+    const warehouses = getItems<Warehouse>('warehouses');
+    const filtered = warehouses.filter(s => s.id !== id);
+    setItems('warehouses', filtered);
   },
 
-  // Locations
-  getLocations: () => getItems<Location>('locations'),
-  saveLocation: (location: Location) => {
-    const locations = getItems<Location>('locations');
-    const index = locations.findIndex(l => l.id === location.id);
-    if (index >= 0) locations[index] = location;
-    else locations.push(location);
-    setItems('locations', locations);
+  // warehouseSpaces
+  getLocations: () => getItems<WarehouseSpace>('warehouseSpaces'),
+  saveLocation: (WarehouseSpace: WarehouseSpace) => {
+    const warehouseSpaces = getItems<WarehouseSpace>('warehouseSpaces');
+    const index = warehouseSpaces.findIndex(l => l.id === WarehouseSpace.id);
+    if (index >= 0) warehouseSpaces[index] = WarehouseSpace;
+    else warehouseSpaces.push(WarehouseSpace);
+    setItems('warehouseSpaces', warehouseSpaces);
   },
   deleteLocation: (id: string) => {
-    const locations = getItems<Location>('locations');
-    const filtered = locations.filter(l => l.id !== id);
-    setItems('locations', filtered);
+    const warehouseSpaces = getItems<WarehouseSpace>('warehouseSpaces');
+    const filtered = warehouseSpaces.filter(l => l.id !== id);
+    setItems('warehouseSpaces', filtered);
   },
 
   // Stock
@@ -142,7 +142,7 @@ export const StorageService = {
     if (currentUsers.length === 0) {
       setItems('users', [
         { id: 'u1', name: 'Admin', username: 'admin', password: 'password', role: 'ADMIN', permissions: ['MANAGE_USERS', 'EDIT_MIN_STOCK', 'MANAGE_CATALOG', 'MANAGE_INFRASTRUCTURE', 'APPROVE_PURCHASES', 'MANAGE_DISINCORPORATION', 'VIEW_REPORTS', 'EXPORT_DATA'] },
-        { id: 'u2', name: 'Ramon Gutierrez', username: 'ramon', password: 'password', role: 'COMPRAS', permissions: ['MANAGE_CATALOG', 'APPROVE_PURCHASES', 'VIEW_REPORTS'], assignedStores: ['s1'] },
+        { id: 'u2', name: 'Ramon Gutierrez', username: 'ramon', password: 'password', role: 'COMPRAS', permissions: ['MANAGE_CATALOG', 'APPROVE_PURCHASES', 'VIEW_REPORTS'], assignedWarehouses: ['s1'] },
         { id: 'u3', name: 'Jefe Deposito', username: 'jefe', password: 'password', role: 'DEPOSITO', permissions: ['EDIT_MIN_STOCK', 'MANAGE_INFRASTRUCTURE'] },
         { id: 'u4', name: 'Encargado Desincorporacion', username: 'encargado', password: 'password', role: 'DESINCORPORACION', permissions: ['MANAGE_DISINCORPORATION'] },
       ]);
@@ -176,9 +176,9 @@ export const StorageService = {
       }
     }
 
-    if (getItems<Store>('stores').length === 0) {
-      setItems('stores', [
-        { id: 's1', name: 'Tienda 1', description: 'Principal', qrCode: 'T001' },
+    if (getItems<Warehouse>('warehouses').length === 0) {
+      setItems('warehouses', [
+        { id: 's1', name: 'Almacén 1', description: 'Principal', qrCode: 'T001' },
       ]);
       setItems('categories', [
         { id: 'c1', name: 'Accesorios', code: 'A', description: 'Accesorios generales', qrCode: 'C001', isFractional: false },
@@ -187,21 +187,21 @@ export const StorageService = {
       setItems('products', [
         {
           id: 'p1', code: '2221133', name: 'Alfombra carro', imageUrl: '', footerUrl: '', categoryId: 'c1',
-          dimensions: { height: 20, width: 15, depth: 30 }, costs: [10], prices: [15, 12], enabledStores: ['s1']
+          dimensions: { height: 20, width: 15, depth: 30 }, costs: [10], prices: [15, 12], enabledWarehouses: ['s1']
         },
         {
           id: 'p2', code: '1714551', name: 'Bocina claxo', imageUrl: '', footerUrl: '', categoryId: 'c1',
-          dimensions: { height: 15, width: 20, depth: 30 }, costs: [8], prices: [12, 10], enabledStores: ['s1']
+          dimensions: { height: 15, width: 20, depth: 30 }, costs: [8], prices: [12, 10], enabledWarehouses: ['s1']
         },
         {
           id: 'p3', code: '3476321', name: 'Luces led', imageUrl: '', footerUrl: '', categoryId: 'c2',
-          dimensions: { height: 47, width: 30, depth: 43 }, costs: [20], prices: [30, 25], enabledStores: ['s1']
+          dimensions: { height: 47, width: 30, depth: 43 }, costs: [20], prices: [30, 25], enabledWarehouses: ['s1']
         }
       ]);
       setItems('stock', [
-        { id: 'st1', productId: 'p1', storeId: 's1', quantity: 30, minStock: 10 },
-        { id: 'st2', productId: 'p2', storeId: 's1', quantity: 14, minStock: 5 },
-        { id: 'st3', productId: 'p3', storeId: 's1', quantity: 25, minStock: 5 },
+        { id: 'st1', productId: 'p1', warehouseId: 's1', quantity: 30, minStock: 10 },
+        { id: 'st2', productId: 'p2', warehouseId: 's1', quantity: 14, minStock: 5 },
+        { id: 'st3', productId: 'p3', warehouseId: 's1', quantity: 25, minStock: 5 },
       ]);
     }
   }

@@ -18,10 +18,16 @@ class PickingLot
     public function getAll(): array
     {
         $lots = $this->db->query(
-            "SELECT pl.id, pl.lot_number as lotNumber, pl.store_id as storeId,
-                    pl.description, pl.status, pl.created_at as createdAt,
-                    pl.conformed_at as conformedAt, pl.created_by as createdBy
-             FROM picking_lots pl ORDER BY pl.created_at DESC"
+            "SELECT pl.id,
+                    pl.lot_number    AS lotNumber,
+                    pl.warehouse_id  AS warehouseId,
+                    pl.description,
+                    pl.status,
+                    pl.created_at    AS createdAt,
+                    pl.conformed_at  AS conformedAt,
+                    pl.created_by    AS createdBy
+             FROM picking_lots pl
+             ORDER BY pl.created_at DESC"
         )->fetchAll();
 
         foreach ($lots as &$lot) {
@@ -33,8 +39,14 @@ class PickingLot
     public function findById(int $id): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT id, lot_number as lotNumber, store_id as storeId, description,
-                    status, created_at as createdAt, conformed_at as conformedAt, created_by as createdBy
+            "SELECT id,
+                    lot_number    AS lotNumber,
+                    warehouse_id  AS warehouseId,
+                    description,
+                    status,
+                    created_at    AS createdAt,
+                    conformed_at  AS conformedAt,
+                    created_by    AS createdBy
              FROM picking_lots WHERE id = :id"
         );
         $stmt->execute([':id' => $id]);
@@ -49,15 +61,15 @@ class PickingLot
         $this->db->beginTransaction();
         try {
             $stmt = $this->db->prepare(
-                "INSERT INTO picking_lots (lot_number, store_id, description, status, created_by)
-                 VALUES (:lot_number, :store_id, :description, :status, :created_by)"
+                "INSERT INTO picking_lots (lot_number, warehouse_id, description, status, created_by)
+                 VALUES (:lot_number, :warehouse_id, :description, :status, :created_by)"
             );
             $stmt->execute([
-                ':lot_number'  => $data['lotNumber'],
-                ':store_id'    => $data['storeId'],
-                ':description' => $data['description'] ?? null,
-                ':status'      => $data['status'] ?? 'DRAFT',
-                ':created_by'  => $data['createdBy'],
+                ':lot_number'   => $data['lotNumber'],
+                ':warehouse_id' => $data['warehouseId'],
+                ':description'  => $data['description'] ?? null,
+                ':status'       => $data['status'] ?? 'DRAFT',
+                ':created_by'   => $data['createdBy'],
             ]);
             $id = (int) $this->db->lastInsertId();
 
@@ -75,15 +87,17 @@ class PickingLot
         $this->db->beginTransaction();
         try {
             $stmt = $this->db->prepare(
-                "UPDATE picking_lots SET lot_number=:lot_number, store_id=:store_id,
-                 description=:description, status=:status WHERE id=:id"
+                "UPDATE picking_lots
+                 SET lot_number=:lot_number, warehouse_id=:warehouse_id,
+                     description=:description, status=:status
+                 WHERE id=:id"
             );
             $stmt->execute([
-                ':id'          => $id,
-                ':lot_number'  => $data['lotNumber'],
-                ':store_id'    => $data['storeId'],
-                ':description' => $data['description'] ?? null,
-                ':status'      => $data['status'],
+                ':id'           => $id,
+                ':lot_number'   => $data['lotNumber'],
+                ':warehouse_id' => $data['warehouseId'],
+                ':description'  => $data['description'] ?? null,
+                ':status'       => $data['status'],
             ]);
             $this->syncItems($id, $data['items'] ?? []);
             $this->db->commit();
@@ -102,26 +116,34 @@ class PickingLot
 
     public function delete(int $id): void
     {
-        // El controlador ya valida el rol antes de llegar aquí.
-        // Solo se bloquea CONFORMED (nunca debe eliminarse).
-        $this->db->prepare("DELETE FROM picking_lots WHERE id = :id AND status IN ('DRAFT', 'PENDING')")->execute([':id' => $id]);
+        $this->db->prepare(
+            "DELETE FROM picking_lots WHERE id = :id AND status IN ('DRAFT', 'PENDING')"
+        )->execute([':id' => $id]);
     }
 
     private function getItems(int $lotId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT id, product_id as productId, quantity_to_enter as quantityToEnter,
-                    number_of_packages as numberOfPackages, packages_config as packagesConfig,
-                    package_dim_height as height, package_dim_width as width, package_dim_depth as depth,
-                    package_description as packageDescription,
-                    min_stock_alert as minStockAlert
+            "SELECT id,
+                    product_id           AS productId,
+                    quantity_to_enter    AS quantityToEnter,
+                    number_of_packages   AS numberOfPackages,
+                    packages_config      AS packagesConfig,
+                    package_dim_height   AS height,
+                    package_dim_width    AS width,
+                    package_dim_depth    AS depth,
+                    min_stock_alert      AS minStockAlert
              FROM picking_lot_items WHERE picking_lot_id = :lid"
         );
         $stmt->execute([':lid' => $lotId]);
         $items = $stmt->fetchAll();
         foreach ($items as &$item) {
             $item['packagesConfig']    = json_decode($item['packagesConfig'] ?? '[]', true);
-            $item['packageDimensions'] = ['height' => $item['height'], 'width' => $item['width'], 'depth' => $item['depth']];
+            $item['packageDimensions'] = [
+                'height' => $item['height'],
+                'width'  => $item['width'],
+                'depth'  => $item['depth'],
+            ];
             unset($item['height'], $item['width'], $item['depth']);
         }
         return $items;
@@ -129,26 +151,31 @@ class PickingLot
 
     private function syncItems(int $lotId, array $items): void
     {
-        $this->db->prepare("DELETE FROM picking_lot_items WHERE picking_lot_id = :lid")->execute([':lid' => $lotId]);
+        $this->db->prepare(
+            "DELETE FROM picking_lot_items WHERE picking_lot_id = :lid"
+        )->execute([':lid' => $lotId]);
+
         if (empty($items)) return;
+
         $stmt = $this->db->prepare(
-            "INSERT INTO picking_lot_items (picking_lot_id, product_id, quantity_to_enter, number_of_packages,
-             packages_config, package_dim_height, package_dim_width, package_dim_depth,
-             package_description, min_stock_alert)
-             VALUES (:lid, :pid, :qty, :nop, :cfg, :ph, :pw, :pd, :pdesc, :msa)"
+            "INSERT INTO picking_lot_items
+                (picking_lot_id, product_id, quantity_to_enter, number_of_packages,
+                 packages_config, package_dim_height, package_dim_width, package_dim_depth,
+                 min_stock_alert)
+             VALUES
+                (:lid, :pid, :qty, :nop, :cfg, :ph, :pw, :pd, :msa)"
         );
         foreach ($items as $item) {
             $stmt->execute([
-                ':lid'   => $lotId,
-                ':pid'   => $item['productId'],
-                ':qty'   => $item['quantityToEnter'],
-                ':nop'   => $item['numberOfPackages'],
-                ':cfg'   => json_encode($item['packagesConfig'] ?? []),
-                ':ph'    => $item['packageDimensions']['height'] ?? null,
-                ':pw'    => $item['packageDimensions']['width']  ?? null,
-                ':pd'    => $item['packageDimensions']['depth']  ?? null,
-                ':pdesc' => $item['packageDescription'] ?? null,  // Texto libre, puede ser null
-                ':msa'   => (int) ($item['minStockAlert'] ?? 0),
+                ':lid'  => $lotId,
+                ':pid'  => $item['productId'],
+                ':qty'  => $item['quantityToEnter'],
+                ':nop'  => $item['numberOfPackages'],
+                ':cfg'  => json_encode($item['packagesConfig'] ?? []),
+                ':ph'   => $item['packageDimensions']['height'] ?? null,
+                ':pw'   => $item['packageDimensions']['width']  ?? null,
+                ':pd'   => $item['packageDimensions']['depth']  ?? null,
+                ':msa'  => (int) ($item['minStockAlert'] ?? 0),
             ]);
         }
     }

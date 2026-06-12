@@ -1,29 +1,31 @@
 import React, { useState } from 'react';
 import { useProviders } from '../hooks/useProviders';
-import { Plus, Search, Edit2, ShieldAlert, Trash2, Building } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Building, ShieldAlert } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../../components/ui/Table';
-import { AuthApi } from '../../../services/api';
+import { useLockedAction } from '../../../hooks/useLockedAction';
+import { LockModal } from '../../../components/LockModal';
 
 export const ProvidersPage: React.FC = () => {
   const { providers, isLoading, saveProvider, deleteProvider } = useProviders();
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Modals state
+
+  // Modal CRUD
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ code: '', name: '', contact_number: '', address: '' });
-  
-  // Password verify state
-  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [unlockedProviders, setUnlockedProviders] = useState<Record<string, boolean>>({});
-  const [pendingUnlockId, setPendingUnlockId] = useState<string | null>(null);
 
-  const filteredProviders = providers.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  // Detalles visibles por proveedor (desbloqueados vía llave VIEW)
+  const [visibleDetails, setVisibleDetails] = useState<Record<string, boolean>>({});
+
+  // Llaves de acceso para Proveedores
+  const lockView   = useLockedAction('PROVIDERS', 'VIEW');
+  const lockEdit   = useLockedAction('PROVIDERS', 'EDIT');
+  const lockDelete = useLockedAction('PROVIDERS', 'DELETE');
+
+  const filteredProviders = providers.filter(p =>
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.code.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -43,49 +45,40 @@ export const ProvidersPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (formData.code && formData.name) {
-      saveProvider({
-        id: editingId || '',
-        code: formData.code,
-        name: formData.name,
-        contact_number: formData.contact_number,
-        address: formData.address,
-      });
-      setFormData({ code: '', name: '', contact_number: '', address: '' });
-      setEditingId(null);
-      setIsModalOpen(false);
+      try {
+        await saveProvider({
+          id: editingId || '',
+          code: formData.code,
+          name: formData.name,
+          contact_number: formData.contact_number,
+          address: formData.address,
+        });
+        setFormData({ code: '', name: '', contact_number: '', address: '' });
+        setEditingId(null);
+        setIsModalOpen(false);
+      } catch (error: any) {
+        alert(error.message || 'Error al guardar el proveedor');
+      }
     }
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('¿Estás seguro de que deseas eliminar este proveedor?')) {
-      deleteProvider(id);
-    }
+    lockDelete.execute(() => {
+      if (window.confirm('¿Eliminar este proveedor?')) deleteProvider(id);
+    });
   };
 
-  const handleRequestUnlock = (id: string) => {
-    setPendingUnlockId(id);
-    setPasswordError('');
-    setAdminPassword('');
-    setIsPasswordModalOpen(true);
-  };
-
-  const handleVerifyPassword = async () => {
-    if (!adminPassword) {
-      setPasswordError('Ingrese la contraseña.');
+  const handleViewDetails = (id: string) => {
+    // Si ya están visibles (cache activo del contexto) los muestra directo
+    if (visibleDetails[id]) {
+      setVisibleDetails(prev => ({ ...prev, [id]: false }));
       return;
     }
-
-    try {
-      await AuthApi.verifyPassword(adminPassword);
-      if (pendingUnlockId) {
-        setUnlockedProviders(prev => ({ ...prev, [pendingUnlockId]: true }));
-      }
-      setIsPasswordModalOpen(false);
-    } catch (error: any) {
-      setPasswordError(error.message || 'Contraseña incorrecta.');
-    }
+    lockView.execute(() => {
+      setVisibleDetails(prev => ({ ...prev, [id]: true }));
+    });
   };
 
   return (
@@ -140,15 +133,21 @@ export const ProvidersPage: React.FC = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {unlockedProviders[provider.id] ? (
-                          <div className="text-sm text-slate-600 space-y-1">
+                        {visibleDetails[provider.id] ? (
+                          <div className="text-sm text-slate-600 space-y-1 animate-in fade-in duration-200">
                             <div><span className="font-medium text-slate-900">Código:</span> {provider.code}</div>
-                            <div><span className="font-medium text-slate-900">Teléfono:</span> {provider.contact_number || '-'}</div>
-                            <div><span className="font-medium text-slate-900">Dirección:</span> {provider.address || '-'}</div>
+                            <div><span className="font-medium text-slate-900">Teléfono:</span> {provider.contact_number || <span className="italic text-slate-400">—</span>}</div>
+                            <div><span className="font-medium text-slate-900">Dirección:</span> {provider.address || <span className="italic text-slate-400">—</span>}</div>
+                            <button
+                              onClick={() => setVisibleDetails(prev => ({ ...prev, [provider.id]: false }))}
+                              className="text-xs text-slate-400 hover:text-slate-600 mt-0.5 transition-colors"
+                            >
+                              Ocultar
+                            </button>
                           </div>
                         ) : (
-                          <button 
-                            onClick={() => handleRequestUnlock(provider.id)}
+                          <button
+                            onClick={() => handleViewDetails(provider.id)}
                             className="flex items-center gap-2 text-sm text-amber-600 font-medium hover:text-amber-700 hover:bg-amber-50 px-3 py-1.5 rounded-lg transition-colors"
                           >
                             <ShieldAlert className="w-4 h-4" />
@@ -158,16 +157,16 @@ export const ProvidersPage: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {unlockedProviders[provider.id] ? (
-                            <button 
-                              onClick={() => handleOpenModal(provider)}
+                          {visibleDetails[provider.id] && (
+                            <button
+                              onClick={() => lockEdit.execute(() => handleOpenModal(provider))}
                               className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                               title="Editar"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
-                          ) : null}
-                          <button 
+                          )}
+                          <button
                             onClick={() => handleDelete(provider.id)}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                             title="Eliminar"
@@ -199,12 +198,12 @@ export const ProvidersPage: React.FC = () => {
             <h2 className="text-xl font-bold text-slate-900 mb-6">
               {editingId ? 'Editar Proveedor' : 'Nuevo Proveedor'}
             </h2>
-            
+
             <div className="space-y-4 mb-8">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Código</label>
-                <Input 
-                  placeholder="Ej: PROV-001" 
+                <Input
+                  placeholder="Ej: PROV-001"
                   value={formData.code}
                   onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                   className="font-mono"
@@ -212,24 +211,24 @@ export const ProvidersPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Nombre del Proveedor</label>
-                <Input 
-                  placeholder="Ej: Distribuidora Nacional CA" 
+                <Input
+                  placeholder="Ej: Distribuidora Nacional CA"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Número de Contacto</label>
-                <Input 
-                  placeholder="Ej: +58 414 1234567" 
+                <Input
+                  placeholder="Ej: +58 414 1234567"
                   value={formData.contact_number}
                   onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Dirección</label>
-                <Input 
-                  placeholder="Ej: Av. Principal, Edificio Central" 
+                <Input
+                  placeholder="Ej: Av. Principal, Edificio Central"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 />
@@ -237,13 +236,8 @@ export const ProvidersPage: React.FC = () => {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
-                Cancelar
-              </Button>
-              <Button 
-                onClick={handleSave}
-                disabled={!formData.code || !formData.name}
-              >
+              <Button variant="ghost" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
+              <Button onClick={handleSave} disabled={!formData.code || !formData.name}>
                 {editingId ? 'Guardar Cambios' : 'Crear Proveedor'}
               </Button>
             </div>
@@ -251,45 +245,10 @@ export const ProvidersPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal de Contraseña Admin */}
-      {isPasswordModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
-                <ShieldAlert className="w-6 h-6" />
-              </div>
-              <h2 className="text-xl font-bold text-slate-900">Validación Requerida</h2>
-            </div>
-            <p className="text-sm text-slate-600 mb-6">
-              Ingrese su contraseña de administrador para visualizar los datos sensibles de este proveedor.
-            </p>
-            
-            <div className="space-y-4 mb-6">
-              <div>
-                <Input 
-                  type="password"
-                  placeholder="Contraseña..." 
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                />
-                {passwordError && (
-                  <p className="text-red-500 text-sm mt-2">{passwordError}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setIsPasswordModalOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleVerifyPassword} className="bg-amber-600 hover:bg-amber-700">
-                Verificar
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modales de Llave de Acceso */}
+      <LockModal {...lockView.lockModalProps} />
+      <LockModal {...lockEdit.lockModalProps} />
+      <LockModal {...lockDelete.lockModalProps} />
     </div>
   );
 };

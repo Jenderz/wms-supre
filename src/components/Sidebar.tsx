@@ -13,8 +13,10 @@ import {
   Tags,
   Activity,
   Settings as SettingsIcon,
+  Shield,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  ClipboardList
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -56,6 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
     },
     { name: 'Productos', path: '/catalog', icon: Package, roles: ['ADMIN', 'COMPRAS'], permission: null },
     { name: 'Almacenes', path: '/infrastructure', icon: Building2, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'], permission: null },
+    { name: 'Inventario', path: '/warehouse', icon: ClipboardList, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'], permission: null },
     {
       name: 'Operaciones',
       icon: ShoppingCart,
@@ -63,11 +66,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       permission: null,
       subItems: [
         { name: 'Abastecimiento', path: '/purchasing', roles: ['ADMIN', 'COMPRAS'], permission: null },
-        { name: 'Depósito (Recepción)', path: '/warehouse', roles: ['ADMIN', 'DEPOSITO'], permission: null },
+        { name: 'Recepción de Mercancía', path: '/warehouse', roles: ['ADMIN', 'DEPOSITO'], permission: null },
         { name: 'Desincorporación', path: '/disincorporation', roles: ['ADMIN', 'DESINCORPORACION'], permission: null },
       ]
     },
-    { name: 'Configuración', path: '/settings', icon: SettingsIcon, roles: ['ADMIN'], permission: null }
+    {
+      name: 'Configuración',
+      icon: SettingsIcon,
+      roles: ['ADMIN'],
+      permission: null,
+      subItems: [
+        { name: 'Ajustes',           path: '/settings', roles: ['ADMIN'], permission: null },
+        { name: 'Llaves de Acceso',  path: '/locks',    roles: ['ADMIN'], permission: null },
+      ]
+    }
   ];
 
   const handleLogout = () => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ProductApi, StockApi, StoreApi, MovementApi, DisincorporationApi } from '../services/api';
-import { Product, Stock, Store, StockMovement, Disincorporation } from '../types';
+import { ProductApi, StockApi, WarehouseApi, MovementApi, DisincorporationApi } from '../services/api';
+import { Product, Stock, Warehouse, StockMovement, Disincorporation } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { 
@@ -23,7 +23,7 @@ export const Statistics: React.FC = () => {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [stock, setStock] = useState<Stock[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [warehouses, setStores] = useState<Warehouse[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [disincorporations, setDisincorporations] = useState<Disincorporation[]>([]);
 
@@ -33,13 +33,13 @@ export const Statistics: React.FC = () => {
         const [p, s, st, m, d] = await Promise.all([
           ProductApi.getAll(),
           StockApi.getAll(),
-          StoreApi.getAll(),
+          WarehouseApi.getAll(),
           MovementApi.getAll(),
           DisincorporationApi.getAll(),
         ]);
         setProducts(p as Product[]);
         setStock(s as Stock[]);
-        setStores(st as Store[]);
+        setStores(st as Warehouse[]);
         setMovements(m as StockMovement[]);
         setDisincorporations(d as Disincorporation[]);
       } catch (err) {
@@ -57,17 +57,17 @@ export const Statistics: React.FC = () => {
   // --- Filtered Data ---
   const filteredStock = useMemo(() => {
     if (globalStoreFilter === 'ALL') return stock;
-    return stock.filter(s => s.storeId === globalStoreFilter);
+    return stock.filter(s => s.warehouseId === globalStoreFilter);
   }, [stock, globalStoreFilter]);
 
   const filteredMovements = useMemo(() => {
     if (globalStoreFilter === 'ALL') return movements;
-    return movements.filter(m => m.storeId === globalStoreFilter);
+    return movements.filter(m => m.warehouseId === globalStoreFilter);
   }, [movements, globalStoreFilter]);
 
   const filteredDisincorporations = useMemo(() => {
     if (globalStoreFilter === 'ALL') return disincorporations;
-    return disincorporations.filter(d => d.storeId === globalStoreFilter);
+    return disincorporations.filter(d => d.warehouseId === globalStoreFilter);
   }, [disincorporations, globalStoreFilter]);
 
   // --- Calculations ---
@@ -132,15 +132,15 @@ export const Statistics: React.FC = () => {
 
   const totalShrinkageValue = shrinkageData.reduce((acc, curr) => acc + curr.value, 0);
 
-  // Stock by Store for Pie Chart
+  // Stock by Warehouse for Pie Chart
   const stockByStoreData = useMemo(() => {
     const dataMap: Record<string, number> = {};
     filteredStock.forEach(s => {
-      const storeName = stores.find(st => st.id === s.storeId)?.name || 'Desconocida';
+      const storeName = warehouses.find(st => st.id === s.warehouseId)?.name || 'Desconocida';
       dataMap[storeName] = (dataMap[storeName] || 0) + s.quantity;
     });
     return Object.entries(dataMap).map(([name, value]) => ({ name, value }));
-  }, [filteredStock, stores]);
+  }, [filteredStock, warehouses]);
 
   // Movements last 30 days
   const movementsTrendData = useMemo(() => {
@@ -236,9 +236,9 @@ export const Statistics: React.FC = () => {
                 value={globalStoreFilter}
                 onChange={(e) => setGlobalStoreFilter(e.target.value)}
               >
-                <option value="ALL">Todas las tiendas</option>
-                {stores.map(store => (
-                  <option key={store.id} value={store.id}>{store.name}</option>
+                <option value="ALL">Todas las Almacenes</option>
+                {warehouses.map(Warehouse => (
+                  <option key={Warehouse.id} value={Warehouse.id}>{Warehouse.name}</option>
                 ))}
               </select>
             </div>
@@ -310,9 +310,9 @@ export const Statistics: React.FC = () => {
           {/* Charts Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            {/* Stock by Store */}
+            {/* Stock by Warehouse */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <h3 className="text-lg font-bold text-slate-900 mb-6">Distribución de Stock por Tienda</h3>
+              <h3 className="text-lg font-bold text-slate-900 mb-6">Distribución de Stock por Almac�n</h3>
               <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>

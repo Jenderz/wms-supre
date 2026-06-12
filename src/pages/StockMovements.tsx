@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MovementApi, ProductApi, StoreApi, UserApi, LocationApi } from '../services/api';
-import { StockMovement, Product, Store, User, Location } from '../types';
+import { MovementApi, ProductApi, WarehouseApi, UserApi, WarehouseSpaceApi } from '../services/api';
+import { StockMovement, Product, Warehouse, User, WarehouseSpace } from '../types';
 import { format, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { ArrowDownRight, ArrowUpRight, ArrowRightLeft, Search, Filter, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table';
@@ -10,9 +10,9 @@ import { Input } from '../components/ui/Input';
 export const StockMovements: React.FC = () => {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [warehouses, setStores] = useState<Warehouse[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [warehouseSpaces, setLocations] = useState<WarehouseSpace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters
@@ -33,15 +33,15 @@ export const StockMovements: React.FC = () => {
         const [m, p, s, u, l] = await Promise.all([
           MovementApi.getAll(),
           ProductApi.getAll(),
-          StoreApi.getAll(),
+          WarehouseApi.getAll(),
           UserApi.getAll(),
-          LocationApi.getAll(),
+          WarehouseSpaceApi.getAll(),
         ]);
         setMovements((m as StockMovement[]).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
         setProducts(p as Product[]);
-        setStores(s as Store[]);
+        setStores(s as Warehouse[]);
         setUsers(u as User[]);
-        setLocations(l as Location[]);
+        setLocations(l as WarehouseSpace[]);
       } catch (err) {
         console.error('Error cargando movimientos:', err);
       } finally {
@@ -52,9 +52,9 @@ export const StockMovements: React.FC = () => {
   }, []);
 
   const getProduct = (id: string) => products.find(p => p.id === id);
-  const getStore = (id: string) => stores.find(s => s.id === id);
+  const getStore = (id: string) => warehouses.find(s => s.id === id);
   const getUser = (id: string) => users.find(u => u.id === id);
-  const getLocation = (id: string) => locations.find(l => l.id === id);
+  const getLocation = (id: string) => warehouseSpaces.find(l => l.id === id);
 
   const filteredMovements = useMemo(() => {
     return movements.filter(m => {
@@ -62,7 +62,7 @@ export const StockMovements: React.FC = () => {
       const matchesSearch = product?.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             product?.code.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = typeFilter === 'ALL' || m.type === typeFilter;
-      const matchesStore = storeFilter === 'ALL' || m.storeId === storeFilter;
+      const matchesStore = storeFilter === 'ALL' || m.warehouseId === storeFilter;
       
       let matchesDate = true;
       if (dateFrom || dateTo) {
@@ -152,9 +152,9 @@ export const StockMovements: React.FC = () => {
               value={storeFilter}
               onChange={(e) => setStoreFilter(e.target.value)}
             >
-              <option value="ALL">Todas las tiendas</option>
-              {stores.map(store => (
-                <option key={store.id} value={store.id}>{store.name}</option>
+              <option value="ALL">Todas las Almacenes</option>
+              {warehouses.map(Warehouse => (
+                <option key={Warehouse.id} value={Warehouse.id}>{Warehouse.name}</option>
               ))}
             </select>
           </div>
@@ -192,16 +192,16 @@ export const StockMovements: React.FC = () => {
               <TableHead>Producto</TableHead>
               <TableHead className="text-center">Cant.</TableHead>
               <TableHead className="hidden lg:table-cell">Motivo</TableHead>
-              <TableHead className="hidden lg:table-cell">Ubicaci贸n / Tienda</TableHead>
+              <TableHead className="hidden lg:table-cell">Ubicaci贸n / Almac閚</TableHead>
               <TableHead>Usuario</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paginatedMovements.map((movement) => {
               const product = getProduct(movement.productId);
-              const store = getStore(movement.storeId);
+              const Warehouse = getStore(movement.warehouseId);
               const user = getUser(movement.createdBy);
-              const location = movement.locationId ? getLocation(movement.locationId) : null;
+              const WarehouseSpace = movement.warehouseSpaceId ? getLocation(movement.warehouseSpaceId) : null;
 
               return (
                 <TableRow key={movement.id}>
@@ -228,10 +228,10 @@ export const StockMovements: React.FC = () => {
                     {movement.notes && <div className="text-xs text-slate-500 mt-0.5 line-clamp-1" title={movement.notes}>{movement.notes}</div>}
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
-                    <div className="text-slate-900 font-medium">{store?.name}</div>
-                    {location ? (
+                    <div className="text-slate-900 font-medium">{Warehouse?.name}</div>
+                    {WarehouseSpace ? (
                       <div className="text-xs text-slate-500">
-                        C:{location.room} E:{location.shelf} Cb:{location.cubicle}
+                        C:{WarehouseSpace.room} E:{WarehouseSpace.shelf} Cb:{WarehouseSpace.cubicle}
                       </div>
                     ) : (
                       <div className="text-xs text-slate-400 italic">Sin ubicaci贸n</div>
@@ -258,9 +258,9 @@ export const StockMovements: React.FC = () => {
       <div className="md:hidden space-y-4">
         {paginatedMovements.map((movement) => {
           const product = getProduct(movement.productId);
-          const store = getStore(movement.storeId);
+          const Warehouse = getStore(movement.warehouseId);
           const user = getUser(movement.createdBy);
-          const location = movement.locationId ? getLocation(movement.locationId) : null;
+          const WarehouseSpace = movement.warehouseSpaceId ? getLocation(movement.warehouseSpaceId) : null;
 
           return (
             <div key={movement.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
@@ -293,10 +293,10 @@ export const StockMovements: React.FC = () => {
 
               <div className="flex justify-between items-end pt-2 border-t border-slate-100">
                 <div>
-                  <div className="text-xs font-medium text-slate-700">{store?.name}</div>
-                  {location ? (
+                  <div className="text-xs font-medium text-slate-700">{Warehouse?.name}</div>
+                  {WarehouseSpace ? (
                     <div className="text-xs text-slate-500">
-                      C:{location.room} E:{location.shelf} Cb:{location.cubicle}
+                      C:{WarehouseSpace.room} E:{WarehouseSpace.shelf} Cb:{WarehouseSpace.cubicle}
                     </div>
                   ) : (
                     <div className="text-xs text-slate-400 italic">Sin ubicaci贸n</div>

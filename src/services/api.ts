@@ -136,23 +136,34 @@ export const ProductApi = {
 };
 
 // ===========================================================
-// Stores
+// Warehouses
 // ===========================================================
-export const StoreApi = {
-  getAll:  ()                        => get<unknown[]>('/stores'),
-  create:  (data: unknown)           => post<{ id: number }>('/stores', data),
-  update:  (id: string | number, data: unknown) => put<unknown>(`/stores/${id}`, data),
-  remove:  (id: string | number)     => del<void>(`/stores/${id}`),
+export const WarehouseApi = {
+  getAll:  ()                        => get<unknown[]>('/warehouses'),
+  create:  (data: unknown)           => post<{ id: number }>('/warehouses', data),
+  update:  (id: string | number, data: unknown) => put<unknown>(`/warehouses/${id}`, data),
+  remove:  (id: string | number)     => del<void>(`/warehouses/${id}`),
 };
 
 // ===========================================================
-// Locations
+// Space Types
 // ===========================================================
-export const LocationApi = {
-  getAll:  (storeId?: string | number) =>
-    get<unknown[]>(storeId ? `/locations?storeId=${storeId}` : '/locations'),
-  create:  (data: unknown)           => post<{ id: number }>('/locations', data),
-  remove:  (id: string | number)     => del<void>(`/locations/${id}`),
+export const SpaceTypeApi = {
+  getAll:  ()                        => get<unknown[]>('/space-types'),
+  create:  (data: unknown)           => post<{ id: number }>('/space-types', data),
+  update:  (id: string | number, data: unknown) => put<unknown>(`/space-types/${id}`, data),
+  remove:  (id: string | number)     => del<void>(`/space-types/${id}`),
+};
+
+// ===========================================================
+// Warehouse Spaces
+// ===========================================================
+export const WarehouseSpaceApi = {
+  getAll:  (warehouseId?: string | number) =>
+    get<unknown[]>(warehouseId ? `/warehouse-spaces?warehouseId=${warehouseId}` : '/warehouse-spaces'),
+  create:  (data: unknown)           => post<{ id: number }>('/warehouse-spaces', data),
+  update:  (id: string | number, data: unknown) => put<unknown>(`/warehouse-spaces/${id}`, data),
+  remove:  (id: string | number)     => del<void>(`/warehouse-spaces/${id}`),
 };
 
 // ===========================================================
@@ -192,6 +203,18 @@ export const DisincorporationApi = {
 // ===========================================================
 export const MovementApi = {
   getAll: () => get<unknown[]>('/movements'),
+};
+
+// ===========================================================
+// Access Keys (Llaves)
+// ===========================================================
+export const LockApi = {
+  getAll:  ()                                            => get<unknown[]>('/locks'),
+  create:  (data: unknown)                               => post<{ id: number }>('/locks', data),
+  update:  (id: string | number, data: unknown)          => put<unknown>(`/locks/${id}`, data),
+  remove:  (id: string | number)                         => del<void>(`/locks/${id}`),
+  verify:  (module: string, action: string, key: string) =>
+    post<{ success: boolean; error?: string }>('/locks/verify', { module, action, key }),
 };
 
 // ===========================================================

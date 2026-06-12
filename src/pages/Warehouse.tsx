@@ -1,40 +1,61 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useWarehouse } from '../features/warehouse/hooks/useWarehouse';
-import { PickingListTab } from '../features/warehouse/components/PickingListTab';
-import { PendingOrgTab } from '../features/warehouse/components/PendingOrgTab';
 import { InventoryTab } from '../features/warehouse/components/InventoryTab';
 
 const Warehouse: React.FC = () => {
   const { user } = useAuth();
-  const { 
-    lots, 
+  const {
     stock,
-    stores,
-    isLoading, 
-    conformLot, 
-    updateStockLocation,
-    getStore, 
-    getProduct, 
-    getStoreLocations,
-    getUser,
+    warehouses,
+    warehouseSpaces,
+    products,
+    providers,
+    isLoading,
+    getStore,
+    getProduct,
     getCategory,
     getLocation,
-    updateMinStock
+    getProvider,
+    updateMinStock,
+    updateStockQuantity,
+    updateProduct,
+    assignSpace,
+    upsertStock,
   } = useWarehouse();
-  
-  const [activeTab, setActiveTab] = useState<'PICKING' | 'PENDING_ORG' | 'INVENTORY'>('PICKING');
 
-  const filteredLots = lots.filter(lot => {
-    if (user?.role === 'DEPOSITO' && user.assignedStores && user.assignedStores.length > 0) {
-      return user.assignedStores.includes(lot.storeId);
+  const [initialSpaceFilter, setInitialSpaceFilter] = useState<string>('');
+
+  // Leer el filtro de espacio guardado desde el módulo de Infraestructura
+  useEffect(() => {
+    const stored = sessionStorage.getItem('wms_inventory_filter');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.tab === 'INVENTORY') {
+          setInitialSpaceFilter(parsed.spaceId || '');
+        }
+        sessionStorage.removeItem('wms_inventory_filter');
+      } catch {}
+    }
+  }, []);
+
+  const filteredStock = stock.filter(s => {
+    if (user?.role === 'DEPOSITO' && user.assignedWarehouses && user.assignedWarehouses.length > 0) {
+      return user.assignedWarehouses.includes(s.warehouseId);
     }
     return true;
   });
 
-  const filteredStock = stock.filter(s => {
-    if (user?.role === 'DEPOSITO' && user.assignedStores && user.assignedStores.length > 0) {
-      return user.assignedStores.includes(s.storeId);
+  // Filtrar productos también por almacén asignado si aplica
+  const filteredProducts = products.filter(p => {
+    if (user?.role === 'DEPOSITO' && user.assignedWarehouses && user.assignedWarehouses.length > 0) {
+      // Incluir producto si tiene algún stock en el almacén asignado o si no tiene stock en ningún lado
+      const productStockWarehouses = stock
+        .filter(s => String(s.productId) === String(p.id))
+        .map(s => s.warehouseId);
+      if (productStockWarehouses.length === 0) return false; // sin stock en ningún lado, no mostrar para DEPOSITO
+      return productStockWarehouses.some(wId => user.assignedWarehouses!.includes(wId));
     }
     return true;
   });
@@ -48,79 +69,25 @@ const Warehouse: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Navigation Tabs */}
-      <div className="flex overflow-x-auto border-b border-slate-200 mb-6 no-print scrollbar-hide">
-        <button
-          onClick={() => setActiveTab('PICKING')}
-          className={`whitespace-nowrap px-4 sm:px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'PICKING' 
-              ? 'border-blue-600 text-blue-600' 
-              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-          }`}
-        >
-          Lista de Picking
-        </button>
-        <button
-          onClick={() => setActiveTab('PENDING_ORG')}
-          className={`whitespace-nowrap px-4 sm:px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'PENDING_ORG' 
-              ? 'border-blue-600 text-blue-600' 
-              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-          }`}
-        >
-          Pendiente por Organizar
-        </button>
-        <button
-          onClick={() => setActiveTab('INVENTORY')}
-          className={`whitespace-nowrap px-4 sm:px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'INVENTORY' 
-              ? 'border-blue-600 text-blue-600' 
-              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-          }`}
-        >
-          Inventario
-        </button>
-      </div>
-
-      {/* Render Active Tab Content */}
-      {activeTab === 'PICKING' && (
-        <PickingListTab 
-          lots={filteredLots}
-          getStore={getStore}
-          getUser={getUser}
-          getProduct={getProduct}
-          getCategory={getCategory}
-          conformLot={conformLot}
-          user={user}
-          isLoading={isLoading}
-        />
-      )}
-      {activeTab === 'PENDING_ORG' && (
-        <PendingOrgTab 
-          stock={filteredStock}
-          stores={stores}
-          getProduct={getProduct}
-          getCategory={getCategory}
-          getStore={getStore}
-          getStoreLocations={getStoreLocations}
-          updateStockLocation={updateStockLocation}
-          user={user}
-        />
-      )}
-      {activeTab === 'INVENTORY' && (
-        <InventoryTab 
-          stock={filteredStock}
-          stores={stores}
-          getProduct={getProduct}
-          getCategory={getCategory}
-          getLocation={getLocation}
-          getStore={getStore}
-          user={user}
-          updateMinStock={updateMinStock}
-        />
-      )}
-    </div>
+    <InventoryTab
+      stock={filteredStock}
+      products={filteredProducts}
+      warehouses={warehouses}
+      warehouseSpaces={warehouseSpaces}
+      providers={providers}
+      getProduct={getProduct}
+      getCategory={getCategory}
+      getLocation={getLocation}
+      getStore={getStore}
+      getProvider={getProvider}
+      user={user}
+      updateMinStock={updateMinStock}
+      updateStockQuantity={updateStockQuantity}
+      updateProduct={updateProduct}
+      assignSpace={assignSpace}
+      upsertStock={upsertStock}
+      initialSpaceFilter={initialSpaceFilter}
+    />
   );
 };
 

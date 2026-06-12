@@ -67,23 +67,23 @@ class PickingLotController
 
         foreach ($lot['items'] as $item) {
             $stockModel->upsert([
-                'productId' => $item['productId'],
-                'storeId'   => $lot['storeId'],
-                'locationId'=> null,
-                'quantity'  => $item['quantityToEnter'],
-                'minStock'  => $item['minStockAlert'] ? 1 : 0,
+                'productId'        => $item['productId'],
+                'warehouseId'      => $lot['warehouseId'],
+                'warehouseSpaceId' => null,
+                'quantity'         => $item['quantityToEnter'],
+                'minStock'         => $item['minStockAlert'] ? 1 : 0,
             ]);
 
             $movementModel->create([
-                'productId'   => $item['productId'],
-                'storeId'     => $lot['storeId'],
-                'locationId'  => null,
-                'type'        => 'IN',
-                'reason'      => 'PICKING_LOT',
-                'quantity'    => $item['quantityToEnter'],
-                'referenceId' => (int) $id,
-                'createdBy'   => $authUser->user_id,
-                'notes'       => "Conformación de lote #{$lot['lotNumber']}",
+                'productId'        => $item['productId'],
+                'warehouseId'      => $lot['warehouseId'],
+                'warehouseSpaceId' => null,
+                'type'             => 'IN',
+                'reason'           => 'RECEPTION',
+                'quantity'         => $item['quantityToEnter'],
+                'referenceId'      => (int) $id,
+                'createdBy'        => $authUser->user_id,
+                'notes'            => "Conformación de lote #{$lot['lotNumber']}",
             ]);
         }
 

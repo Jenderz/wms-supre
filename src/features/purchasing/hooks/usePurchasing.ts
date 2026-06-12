@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ProductApi, CategoryApi, StoreApi, PickingLotApi, UserApi, StockApi } from '../../../services/api';
-import { Product, Category, Store, PickingLot, User, Stock } from '../../../types';
+import { ProductApi, CategoryApi, WarehouseApi, PickingLotApi, UserApi, StockApi } from '../../../services/api';
+import { Product, Category, Warehouse, PickingLot, User, Stock } from '../../../types';
 
 export const usePurchasing = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [warehouses, setStores] = useState<Warehouse[]>([]);
   const [pickingLots, setPickingLots] = useState<PickingLot[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [stock, setStock] = useState<Stock[]>([]);
@@ -17,14 +17,14 @@ export const usePurchasing = () => {
       const [productsData, categoriesData, storesData, lotsData, usersData, stockData] = await Promise.all([
         ProductApi.getAll(),
         CategoryApi.getAll(),
-        StoreApi.getAll(),
+        WarehouseApi.getAll(),
         PickingLotApi.getAll(),
         UserApi.getAll(),
         StockApi.getAll(),
       ]);
       setProducts(productsData as Product[]);
       setCategories(categoriesData as Category[]);
-      setStores(storesData as Store[]);
+      setStores(storesData as Warehouse[]);
       setPickingLots(lotsData as PickingLot[]);
       setUsers(usersData as User[]);
       setStock(stockData as Stock[]);
@@ -55,13 +55,13 @@ export const usePurchasing = () => {
 
   const getProduct  = (id: string) => products.find(p => String(p.id) === String(id));
   const getCategory = (id: string) => categories.find(c => String(c.id) === String(id));
-  const getStore    = (id: string) => stores.find(s => String(s.id) === String(id));
+  const getStore    = (id: string) => warehouses.find(s => String(s.id) === String(id));
   const getUser     = (id: string) => users.find(u => String(u.id) === String(id));
 
   return {
     products,
     categories,
-    stores,
+    warehouses,
     pickingLots,
     users,
     stock,

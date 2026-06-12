@@ -21,19 +21,19 @@ class Product
             "SELECT p.id, p.code, p.name, p.image_url as imageUrl, p.footer_url as footerUrl,
                     p.category_id as categoryId, p.subcategory_id as subcategoryId,
                     p.dimension_height as height, p.dimension_width as width, p.dimension_depth as depth,
-                    GROUP_CONCAT(DISTINCT ps.store_id) as enabled_stores,
+                    GROUP_CONCAT(DISTINCT pw.warehouse_id) as enabled_warehouses,
                     GROUP_CONCAT(DISTINCT pp.provider_id) as providers
              FROM products p
-             LEFT JOIN product_stores ps ON p.id = ps.product_id
+             LEFT JOIN product_warehouses pw ON p.id = pw.product_id
              LEFT JOIN product_providers pp ON p.id = pp.product_id
              GROUP BY p.id"
         )->fetchAll();
 
         foreach ($rows as &$row) {
-            $row['dimensions']    = ['height' => $row['height'], 'width' => $row['width'], 'depth' => $row['depth']];
-            $row['enabledStores'] = $row['enabled_stores'] ? array_map('intval', explode(',', $row['enabled_stores'])) : [];
-            $row['providers']     = $row['providers'] ? array_map('intval', explode(',', $row['providers'])) : [];
-            unset($row['height'], $row['width'], $row['depth'], $row['enabled_stores']);
+            $row['dimensions']        = ['height' => $row['height'], 'width' => $row['width'], 'depth' => $row['depth']];
+            $row['enabledWarehouses'] = $row['enabled_warehouses'] ? array_map('intval', explode(',', $row['enabled_warehouses'])) : [];
+            $row['providers']         = $row['providers'] ? array_map('intval', explode(',', $row['providers'])) : [];
+            unset($row['height'], $row['width'], $row['depth'], $row['enabled_warehouses']);
 
             // Cargar costos y precios
             $row['costs']  = $this->loadSub('product_costs', 'cost', $row['id']);
@@ -84,7 +84,7 @@ class Product
             ]);
             $id = (int) $this->db->lastInsertId();
 
-            $this->syncStores($id, $data['enabledStores'] ?? []);
+            $this->syncStores($id, $data['enabledWarehouses'] ?? []);
             $this->syncProviders($id, $data['providers'] ?? []);
             $this->syncSubTable('product_costs', 'cost', $id, $data['costs'] ?? []);
             $this->syncSubTable('product_prices', 'price', $id, $data['prices'] ?? []);
@@ -119,7 +119,7 @@ class Product
                 ':depth'       => $data['dimensions']['depth'] ?? null,
             ]);
 
-            $this->syncStores($id, $data['enabledStores'] ?? []);
+            $this->syncStores($id, $data['enabledWarehouses'] ?? []);
             $this->syncProviders($id, $data['providers'] ?? []);
             $this->syncSubTable('product_costs', 'cost', $id, $data['costs'] ?? []);
             $this->syncSubTable('product_prices', 'price', $id, $data['prices'] ?? []);
@@ -133,16 +133,36 @@ class Product
 
     public function delete(int $id): void
     {
-        $this->db->prepare("DELETE FROM products WHERE id = :id")->execute([':id' => $id]);
+        $this->db->beginTransaction();
+        try {
+            // Eliminar dependencias del producto en almacén, inventario y relaciones
+            $this->db->prepare("DELETE FROM product_warehouses WHERE product_id = :id")->execute([':id' => $id]);
+            $this->db->prepare("DELETE FROM product_providers WHERE product_id = :id")->execute([':id' => $id]);
+            $this->db->prepare("DELETE FROM product_costs WHERE product_id = :id")->execute([':id' => $id]);
+            $this->db->prepare("DELETE FROM product_prices WHERE product_id = :id")->execute([':id' => $id]);
+            $this->db->prepare("DELETE FROM stock WHERE product_id = :id")->execute([':id' => $id]);
+            $this->db->prepare("DELETE FROM stock_movements WHERE product_id = :id")->execute([':id' => $id]);
+            $this->db->prepare("DELETE FROM disincorporation_items WHERE product_id = :id")->execute([':id' => $id]);
+            $this->db->prepare("DELETE FROM picking_lot_items WHERE product_id = :id")->execute([':id' => $id]);
+            
+            // Si existiese la tabla antigua product_stores
+            try { $this->db->prepare("DELETE FROM product_stores WHERE product_id = :id")->execute([':id' => $id]); } catch (\Throwable $e) {}
+
+            $this->db->prepare("DELETE FROM products WHERE id = :id")->execute([':id' => $id]);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 
-    private function syncStores(int $productId, array $storeIds): void
+    private function syncStores(int $productId, array $warehouseIds): void
     {
-        $this->db->prepare("DELETE FROM product_stores WHERE product_id = :pid")->execute([':pid' => $productId]);
-        if (empty($storeIds)) return;
-        $stmt = $this->db->prepare("INSERT INTO product_stores (product_id, store_id) VALUES (:pid, :sid)");
-        foreach ($storeIds as $sid) {
-            $stmt->execute([':pid' => $productId, ':sid' => (int) $sid]);
+        $this->db->prepare("DELETE FROM product_warehouses WHERE product_id = :pid")->execute([':pid' => $productId]);
+        if (empty($warehouseIds)) return;
+        $stmt = $this->db->prepare("INSERT INTO product_warehouses (product_id, warehouse_id) VALUES (:pid, :wid)");
+        foreach ($warehouseIds as $wid) {
+            $stmt->execute([':pid' => $productId, ':wid' => (int) $wid]);
         }
     }
 
@@ -168,6 +188,29 @@ class Product
         foreach ($values as $val) {
             $stmt->execute([':pid' => $productId, ':val' => $val]);
         }
+    }
+
+    /**
+     * Obtiene el ID de la categoría reservada "Sin Categoría" (code: SIN-CAT).
+     * Si no existe en la BD, la crea automáticamente (idempotente).
+     */
+    public function getOrCreateDefaultCategoryId(): int
+    {
+        $stmt = $this->db->prepare("SELECT id FROM categories WHERE code = 'SIN-CAT' LIMIT 1");
+        $stmt->execute();
+        $row = $stmt->fetch();
+
+        if ($row) {
+            return (int) $row['id'];
+        }
+
+        // No existe aún — la creamos como fallback de seguridad
+        $insert = $this->db->prepare(
+            "INSERT INTO categories (name, code, description, is_fractional, fraction_type)
+             VALUES ('Sin Categoría', 'SIN-CAT', 'Categoría reservada del sistema. Asignada automáticamente a productos sin clasificar.', 0, NULL)"
+        );
+        $insert->execute();
+        return (int) $this->db->lastInsertId();
     }
 
     private function loadSub(string $table, string $column, int $productId): array

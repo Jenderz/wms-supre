@@ -1,21 +1,24 @@
 import { useState, useEffect } from 'react';
-import { StoreApi, LocationApi } from '../../../services/api';
-import { Store, Location } from '../../../types';
+import { WarehouseApi, WarehouseSpaceApi, SpaceTypeApi } from '../../../services/api';
+import { Warehouse, WarehouseSpace, SpaceType } from '../../../types';
 
 export const useInfrastructure = () => {
-  const [stores, setStores] = useState<Store[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseSpaces, setWarehouseSpaces] = useState<WarehouseSpace[]>([]);
+  const [spaceTypes, setSpaceTypes] = useState<SpaceType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [storesData, locationsData] = await Promise.all([
-        StoreApi.getAll(),
-        LocationApi.getAll(),
+      const [warehousesData, spacesData, typesData] = await Promise.all([
+        WarehouseApi.getAll(),
+        WarehouseSpaceApi.getAll(),
+        SpaceTypeApi.getAll()
       ]);
-      setStores(storesData as Store[]);
-      setLocations(locationsData as Location[]);
+      setWarehouses(warehousesData as Warehouse[]);
+      setWarehouseSpaces(spacesData as WarehouseSpace[]);
+      setSpaceTypes(typesData as SpaceType[]);
     } catch (error) {
       console.error('Error loading infrastructure data:', error);
     } finally {
@@ -27,41 +30,61 @@ export const useInfrastructure = () => {
     loadData();
   }, []);
 
-  const saveStore = async (store: Store) => {
-    if (store.id && !String(store.id).startsWith('new')) {
-      await StoreApi.update(store.id, store);
+  const saveWarehouse = async (warehouse: Warehouse) => {
+    if (warehouse.id && !String(warehouse.id).startsWith('new')) {
+      await WarehouseApi.update(warehouse.id, warehouse);
     } else {
-      await StoreApi.create(store);
+      await WarehouseApi.create(warehouse);
     }
     await loadData();
   };
 
-  const deleteStore = async (id: string) => {
-    await StoreApi.remove(id);
+  const deleteWarehouse = async (id: string) => {
+    await WarehouseApi.remove(id);
     await loadData();
   };
 
-  const saveLocation = async (location: Location) => {
-    if (location.id && !String(location.id).startsWith('new')) {
-      // Las ubicaciones no tienen PUT en el API, se elimina y recrea
-      await LocationApi.remove(location.id);
+  const saveWarehouseSpace = async (space: WarehouseSpace) => {
+    if (space.id && !String(space.id).startsWith('new')) {
+       await WarehouseSpaceApi.update(space.id, space);
+    } else {
+       await WarehouseSpaceApi.create(space);
     }
-    await LocationApi.create(location);
     await loadData();
   };
 
-  const deleteLocation = async (id: string) => {
-    await LocationApi.remove(id);
+  const deleteWarehouseSpace = async (id: string) => {
+    await WarehouseSpaceApi.remove(id);
+    await loadData();
+  };
+
+  const saveSpaceType = async (type: SpaceType) => {
+    await SpaceTypeApi.create(type);
+    await loadData();
+  };
+
+  const updateSpaceType = async (id: string, data: Partial<SpaceType>) => {
+    await SpaceTypeApi.update(id, data);
+    await loadData();
+  };
+  
+  const deleteSpaceType = async (id: string) => {
+    await SpaceTypeApi.remove(id);
     await loadData();
   };
 
   return {
-    stores,
-    locations,
+    warehouses,
+    warehouseSpaces,
+    spaceTypes,
     isLoading,
-    saveStore,
-    deleteStore,
-    saveLocation,
-    deleteLocation,
+    saveWarehouse,
+    deleteWarehouse,
+    saveWarehouseSpace,
+    deleteWarehouseSpace,
+    saveSpaceType,
+    updateSpaceType,
+    deleteSpaceType,
+    setWarehouseSpaces // Exponer setter para importación
   };
 };

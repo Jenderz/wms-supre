@@ -33,9 +33,13 @@ class ProductController
     public function store(): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
-        if (empty($data['code']) || empty($data['name']) || empty($data['categoryId'])) {
-            Response::error('code, name y categoryId son requeridos.', 400);
+        if (empty($data['code']) || empty($data['name'])) {
+            Response::error('code y name son requeridos.', 400);
             return;
+        }
+        // Si no viene categoryId, asignar automáticamente la categoría reservada del sistema
+        if (empty($data['categoryId'])) {
+            $data['categoryId'] = $this->model->getOrCreateDefaultCategoryId();
         }
         try {
             $id = $this->model->create($data);
@@ -52,6 +56,10 @@ class ProductController
     public function update(string $id): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
+        // Si no viene categoryId, asignar automáticamente la categoría reservada del sistema
+        if (empty($data['categoryId'])) {
+            $data['categoryId'] = $this->model->getOrCreateDefaultCategoryId();
+        }
         $this->model->update((int) $id, $data);
         Response::json(['message' => 'Producto actualizado.']);
     }

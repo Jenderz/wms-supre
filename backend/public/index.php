@@ -48,11 +48,13 @@ use App\Controllers\UserController;
 use App\Controllers\CategoryController;
 use App\Controllers\ProviderController;
 use App\Controllers\ProductController;
-use App\Controllers\StoreController;
-use App\Controllers\LocationController;
+use App\Controllers\WarehouseController;
+use App\Controllers\WarehouseSpaceController;
+use App\Controllers\SpaceTypeController;
 use App\Controllers\StockController;
 use App\Controllers\PickingLotController;
 use App\Controllers\DisincorporationController;
+use App\Controllers\AccessKeyController;
 use App\Controllers\StockMovementController;
 use App\Middleware\AuthMiddleware;
 use App\Helpers\Response;
@@ -102,16 +104,23 @@ try {
     route('PUT',    '/products/{id}',   fn($params) => (new ProductController())->update($params['id']));
     route('DELETE', '/products/{id}',   fn($params) => (new ProductController())->destroy($params['id']));
 
-    // --- Stores ---
-    route('GET',    '/stores',          fn() => (new StoreController())->index());
-    route('POST',   '/stores',          fn() => (new StoreController())->store());
-    route('PUT',    '/stores/{id}',     fn($params) => (new StoreController())->update($params['id']));
-    route('DELETE', '/stores/{id}',     fn($params) => (new StoreController())->destroy($params['id']));
+    // --- Warehouses ---
+    route('GET',    '/warehouses',          fn() => (new WarehouseController())->index());
+    route('POST',   '/warehouses',          fn() => (new WarehouseController())->store());
+    route('PUT',    '/warehouses/{id}',     fn($params) => (new WarehouseController())->update($params['id']));
+    route('DELETE', '/warehouses/{id}',     fn($params) => (new WarehouseController())->destroy($params['id']));
 
-    // --- Locations ---
-    route('GET',    '/locations',       fn() => (new LocationController())->index());
-    route('POST',   '/locations',       fn() => (new LocationController())->store());
-    route('DELETE', '/locations/{id}',  fn($params) => (new LocationController())->destroy($params['id']));
+    // --- Space Types ---
+    route('GET',    '/space-types',         fn() => (new SpaceTypeController())->index());
+    route('POST',   '/space-types',         fn() => (new SpaceTypeController())->store());
+    route('PUT',    '/space-types/{id}',    fn($params) => (new SpaceTypeController())->update($params['id']));
+    route('DELETE', '/space-types/{id}',    fn($params) => (new SpaceTypeController())->destroy($params['id']));
+
+    // --- Warehouse Spaces ---
+    route('GET',    '/warehouse-spaces',       fn() => (new WarehouseSpaceController())->index());
+    route('POST',   '/warehouse-spaces',       fn() => (new WarehouseSpaceController())->store());
+    route('PUT',    '/warehouse-spaces/{id}',  fn($params) => (new WarehouseSpaceController())->update($params['id']));
+    route('DELETE', '/warehouse-spaces/{id}',  fn($params) => (new WarehouseSpaceController())->destroy($params['id']));
 
     // --- Stock ---
     route('GET',    '/stock',           fn() => (new StockController())->index());
@@ -135,6 +144,14 @@ try {
 
     // --- Stock Movements ---
     route('GET',    '/movements',       fn() => (new StockMovementController())->index($user));
+
+    // --- Access Keys (Llaves) ---
+    route('GET',    '/locks',                fn() => (new AccessKeyController())->index());
+    route('GET',    '/locks/status',         fn() => (new AccessKeyController())->status());
+    route('POST',   '/locks',                fn() => (new AccessKeyController())->store());
+    route('PUT',    '/locks/{id}',           fn($params) => (new AccessKeyController())->update($params['id']));
+    route('DELETE', '/locks/{id}',           fn($params) => (new AccessKeyController())->destroy($params['id']));
+    route('POST',   '/locks/verify',         fn() => (new AccessKeyController())->verify());
 
     // Si ninguna ruta hizo match
     Response::json(['error' => 'Endpoint no encontrado.'], 404);

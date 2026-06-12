@@ -18,7 +18,7 @@ export interface User {
   password?: string; // Optional for now to avoid breaking existing code if needed
   role: Role;
   permissions?: Permission[];
-  assignedStores?: string[]; // IDs of stores this user can manage (e.g., for COMPRAS)
+  assignedWarehouses?: string[]; // IDs of warehouses this user can manage (e.g., for COMPRAS)
 }
 
 export interface Subcategory {
@@ -63,29 +63,39 @@ export interface Product {
   };
   costs: number[]; // Max 2
   prices: number[]; // Max 5
-  enabledStores: string[]; // Store IDs
+  enabledWarehouses: string[]; // Warehouse IDs
 }
 
-export interface Store {
+export interface Warehouse {
   id: string;
   name: string;
   description: string;
   qrCode: string;
 }
 
-export interface Location {
+export interface SpaceType {
   id: string;
-  storeId: string;
-  room: string;
-  shelf: string;
-  cubicle: string;
+  name: string;
+}
+
+export interface WarehouseSpace {
+  id: string;
+  warehouseId: string;
+  warehouseName?: string;
+  spaceTypeId: string;
+  spaceTypeName?: string;
+  name: string;
+  proximity: number;
+  qrCode: string;
+  productCount?: number;
+  totalQuantity?: number;
 }
 
 export interface Stock {
   id: string;
   productId: string;
-  storeId: string;
-  locationId?: string; // Optional if it's raw stock not yet assigned
+  warehouseId: string;
+  warehouseSpaceId?: string; // Optional if it's raw stock not yet assigned
   quantity: number;
   minStock: number;
 }
@@ -106,7 +116,7 @@ export type PickingLotStatus = 'DRAFT' | 'PENDING' | 'CONFORMED';
 export interface PickingLot {
   id: string;
   lotNumber: string;
-  storeId: string;
+  warehouseId: string;
   description: string;
   items: PickingLotItem[];
   status: PickingLotStatus;
@@ -121,7 +131,7 @@ export type DisincorporationStatus = 'DRAFT' | 'APPROVED' | 'REJECTED';
 export interface DisincorporationItem {
   id: string;
   productId: string;
-  locationId?: string;
+  warehouseSpaceId?: string;
   quantity: number;
   reason: DisincorporationReason;
   notes?: string;
@@ -129,7 +139,7 @@ export interface DisincorporationItem {
 
 export interface Disincorporation {
   id: string;
-  storeId: string;
+  warehouseId: string;
   items: DisincorporationItem[];
   status: DisincorporationStatus;
   createdAt: string;
@@ -145,13 +155,53 @@ export type MovementReason = 'RECEPTION' | 'DISINCORPORATION' | 'MANUAL_ADJUSTME
 export interface StockMovement {
   id: string;
   productId: string;
-  storeId: string;
+  warehouseId: string;
   type: MovementType;
   reason: MovementReason;
   quantity: number;
-  locationId?: string;
+  warehouseSpaceId?: string;
   referenceId?: string; // e.g., lotId or disincorporationId
   createdAt: string;
   createdBy: string;
   notes?: string;
 }
+
+// ============================================================
+// LLAVES DE ACCESO
+// ============================================================
+
+export type LockModule =
+  | 'CATALOG'
+  | 'CATEGORIES'
+  | 'PROVIDERS'
+  | 'INFRASTRUCTURE'
+  | 'PURCHASING'
+  | 'WAREHOUSE'
+  | 'DISINCORPORATION'
+  | 'USERS'
+  | 'SETTINGS'
+  | 'INVENTORY';
+
+export type LockAction =
+  | 'DELETE'
+  | 'EDIT'
+  | 'CREATE'
+  | 'IMPORT'
+  | 'EXPORT'
+  | 'VIEW'
+  | 'CONFORM'
+  | 'APPROVE'
+  | 'ADJUST_STOCK'
+  | '*';
+
+export interface LockKey {
+  id: string;
+  name: string;
+  module: LockModule;
+  action: LockAction;
+  isActive: boolean;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+

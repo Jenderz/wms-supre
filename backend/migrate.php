@@ -7,12 +7,20 @@ try {
     // Create subcategories table
     $db->exec("
         CREATE TABLE IF NOT EXISTS subcategories (
-            id INT AUTO_INCREMENT PRIMARY KEY,
+            id          INT AUTO_INCREMENT PRIMARY KEY,
             category_id INT NOT NULL,
-            name VARCHAR(100) NOT NULL,
-            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+            name        VARCHAR(100) NOT NULL,
+            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+            UNIQUE KEY uk_subcategory_name (category_id, name)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
+
+    // Agregar el UNIQUE KEY si la tabla ya existia sin el (idempotente)
+    try {
+        $db->exec("ALTER TABLE subcategories ADD UNIQUE KEY uk_subcategory_name (category_id, name);");
+    } catch (\PDOException $e) {
+        // Ignorar: el indice ya existe (codigo 1061)
+    }
 
     // Add subcategory_id to products
     // We ignore error if column already exists

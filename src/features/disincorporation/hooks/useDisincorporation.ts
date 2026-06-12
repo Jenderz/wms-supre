@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { DisincorporationApi, ProductApi, StoreApi, StockApi, LocationApi } from '../../../services/api';
-import { Disincorporation, Product, Store, Stock, Location } from '../../../types';
+import { DisincorporationApi, ProductApi, WarehouseApi, StockApi, WarehouseSpaceApi } from '../../../services/api';
+import { Disincorporation, Product, Warehouse, Stock, WarehouseSpace } from '../../../types';
 
 export const useDisincorporation = () => {
   const [disincorporations, setDisincorporations] = useState<Disincorporation[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [warehouses, setStores] = useState<Warehouse[]>([]);
   const [stock, setStock] = useState<Stock[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [warehouseSpaces, setLocations] = useState<WarehouseSpace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = async () => {
@@ -16,15 +16,15 @@ export const useDisincorporation = () => {
       const [disData, prodData, storeData, stockData, locData] = await Promise.all([
         DisincorporationApi.getAll(),
         ProductApi.getAll(),
-        StoreApi.getAll(),
+        WarehouseApi.getAll(),
         StockApi.getAll(),
-        LocationApi.getAll(),
+        WarehouseSpaceApi.getAll(),
       ]);
       setDisincorporations(disData as Disincorporation[]);
       setProducts(prodData as Product[]);
-      setStores(storeData as Store[]);
+      setStores(storeData as Warehouse[]);
       setStock(stockData as Stock[]);
-      setLocations(locData as Location[]);
+      setLocations(locData as WarehouseSpace[]);
     } catch (error) {
       console.error('Error loading disincorporation data:', error);
     } finally {
@@ -60,9 +60,9 @@ export const useDisincorporation = () => {
   return {
     disincorporations,
     products,
-    stores,
+    warehouses,
     stock,
-    locations,
+    warehouseSpaces,
     isLoading,
     saveDisincorporation,
     deleteDisincorporation,

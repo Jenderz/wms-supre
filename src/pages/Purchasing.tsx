@@ -3,7 +3,7 @@ import { usePurchasing } from '../features/purchasing/hooks/usePurchasing';
 import { PickingLot, PickingLotItem, Product } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
-import { Search, Save, Send, Plus, Trash2, Edit2, ArrowLeft, Package, FileText, Calendar, Store as StoreIcon, Printer, User as UserIcon, Box, Download } from 'lucide-react';
+import { Search, Save, Send, Plus, Trash2, Edit2, ArrowLeft, Package, FileText, Calendar, Warehouse as StoreIcon, Printer, User as UserIcon, Box, Download } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table';
@@ -16,7 +16,7 @@ const Purchasing: React.FC = () => {
   const { user } = useAuth();
   const { 
     products, 
-    stores, 
+    warehouses, 
     pickingLots, 
     stock,
     users,
@@ -52,7 +52,7 @@ const Purchasing: React.FC = () => {
 
   const handleEditLot = (lot: PickingLot) => {
     setEditingLotId(lot.id);
-    setSelectedStoreId(lot.storeId);
+    setSelectedStoreId(lot.warehouseId);
     setLotDescription(lot.description);
     setItems(lot.items); // Deep copy might be needed if items are mutated directly
     setView('form');
@@ -64,14 +64,14 @@ const Purchasing: React.FC = () => {
     }
   };
 
-  const getProductStock = (productId: string, storeId: string) => {
-    const stockItem = stock.find(s => s.productId === productId && s.storeId === storeId);
+  const getProductStock = (productId: string, warehouseId: string) => {
+    const stockItem = stock.find(s => s.productId === productId && s.warehouseId === warehouseId);
     return stockItem ? stockItem.quantity : 0;
   };
 
   const handleExportPDF = (lot: PickingLot) => {
     const doc = new jsPDF();
-    const storeName = getStore(lot.storeId)?.name || 'Tienda Desconocida';
+    const storeName = getStore(lot.warehouseId)?.name || 'Almacén Desconocida';
     const creatorName = getUser(lot.createdBy)?.name || 'Desconocido';
     const date = format(new Date(lot.createdAt), 'dd/MM/yyyy HH:mm');
 
@@ -92,7 +92,7 @@ const Purchasing: React.FC = () => {
 
     // Info
     doc.setFontSize(10);
-    doc.text(`Tienda Destino: ${storeName}`, 14, 45);
+    doc.text(`Almacén Destino: ${storeName}`, 14, 45);
     doc.text(`Creado Por: ${creatorName}`, 14, 52);
     doc.text(`Estado: ${lot.status === 'DRAFT' ? 'Borrador' : lot.status === 'PENDING' ? 'Pendiente' : 'Conformado'}`, 14, 59);
     doc.text(`DescripciÃ³n: ${lot.description || '-'}`, 14, 66);
@@ -214,7 +214,7 @@ const Purchasing: React.FC = () => {
 
   // Save / Send
   const handleSave = (status: 'DRAFT' | 'PENDING') => {
-    if (!selectedStoreId) return alert('Seleccione una tienda destino');
+    if (!selectedStoreId) return alert('Seleccione una Almacén destino');
     if (items.length === 0) return alert('Agregue al menos un producto');
 
     const lot: PickingLot = {
@@ -222,7 +222,7 @@ const Purchasing: React.FC = () => {
       lotNumber: editingLotId 
         ? pickingLots.find(l => l.id === editingLotId)?.lotNumber || `LOT-${Math.floor(Math.random() * 100000)}`
         : `LOT-${Math.floor(Math.random() * 100000)}`,
-      storeId: selectedStoreId,
+      warehouseId: selectedStoreId,
       description: lotDescription,
       items,
       status,
@@ -253,8 +253,8 @@ const Purchasing: React.FC = () => {
     : [];
 
   const visibleLots = pickingLots.filter(lot => {
-    if (user?.role === 'COMPRAS' && user.assignedStores && user.assignedStores.length > 0) {
-      return user.assignedStores.includes(lot.storeId);
+    if (user?.role === 'COMPRAS' && user.assignedWarehouses && user.assignedWarehouses.length > 0) {
+      return user.assignedWarehouses.includes(lot.warehouseId);
     }
     return true;
   });
@@ -285,7 +285,7 @@ const Purchasing: React.FC = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead>Lote</TableHead>
-                  <TableHead>Tienda Destino</TableHead>
+                  <TableHead>Almacén Destino</TableHead>
                   <TableHead>Creador</TableHead>
                   <TableHead>DescripciÃ³n</TableHead>
                   <TableHead className="text-center">Items</TableHead>
@@ -308,7 +308,7 @@ const Purchasing: React.FC = () => {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <StoreIcon className="w-4 h-4 text-slate-400" />
-                          <span className="font-medium text-slate-700">{getStore(lot.storeId)?.name || 'Tienda Desconocida'}</span>
+                          <span className="font-medium text-slate-700">{getStore(lot.warehouseId)?.name || 'Almacén Desconocida'}</span>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -437,17 +437,17 @@ const Purchasing: React.FC = () => {
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Tienda Destino</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Almacén Destino</label>
                 <select
                   value={selectedStoreId}
                   onChange={(e) => setSelectedStoreId(e.target.value)}
                   className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 >
-                  <option value="">Seleccione tienda...</option>
-                  {stores
+                  <option value="">Seleccione Almacén...</option>
+                  {warehouses
                     .filter(s => {
-                      if (user?.role === 'COMPRAS' && user.assignedStores && user.assignedStores.length > 0) {
-                        return user.assignedStores.includes(s.id);
+                      if (user?.role === 'COMPRAS' && user.assignedWarehouses && user.assignedWarehouses.length > 0) {
+                        return user.assignedWarehouses.includes(s.id);
                       }
                       return true;
                     })

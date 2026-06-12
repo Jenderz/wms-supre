@@ -1,25 +1,27 @@
 import React, { useState } from 'react';
-import { Stock, Store } from '../../../types';
+import { Stock, Warehouse } from '../../../types';
 import { Package, MapPin, CheckCircle2, AlertTriangle, Tag, Trash2, ArrowLeft, Building2 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../../components/ui/Table';
 import { Badge } from '../../../components/ui/Badge';
 import { Input } from '../../../components/ui/Input';
+import { useLockedAction } from '../../../hooks/useLockedAction';
+import { LockModal } from '../../../components/LockModal';
 
 interface PendingOrgTabProps {
   stock: Stock[];
-  stores: Store[];
+  warehouses: Warehouse[];
   getProduct: (id: string) => any;
   getCategory: (id: string) => any;
   getStore: (id: string) => any;
-  getStoreLocations: (storeId: string) => any[];
-  updateStockLocation: (stockId: string, locationId: string, quantity: number, userId: string) => Promise<void>;
+  getStoreLocations: (warehouseId: string) => any[];
+  updateStockLocation: (stockId: string, warehouseSpaceId: string, quantity: number, userId: string) => Promise<void>;
   user: any;
 }
 
 export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
   stock,
-  stores,
+  warehouses,
   getProduct,
   getCategory,
   getStore,
@@ -27,20 +29,22 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
   updateStockLocation,
   user
 }) => {
+  const lockAdjust = useLockedAction('WAREHOUSE', 'ADJUST_STOCK');
+
   const [selectedProductToOrganize, setSelectedProductToOrganize] = useState<string | null>(null);
   const [selectedProductStoreId, setSelectedProductStoreId] = useState<string | null>(null);
-  const [locationAssignments, setLocationAssignments] = useState<{locationId: string, quantity: number}[]>([]);
-  // Filtro por tienda — '' = todas
+  const [locationAssignments, setLocationAssignments] = useState<{warehouseSpaceId: string, quantity: number}[]>([]);
+  // Filtro por Almac�n — '' = todas
   const [storeFilter, setStoreFilter] = useState<string>('');
 
-  // Agrupar stock SIN ubicación por producto, luego aplicar filtro de tienda
+  // Agrupar stock SIN ubicación por producto, luego aplicar filtro de Almac�n
   const pendingStockByProduct = stock.reduce((acc, s) => {
-    if (!s.locationId) {
-      const key = `${s.productId}-${s.storeId}`;
+    if (!s.warehouseSpaceId) {
+      const key = `${s.productId}-${s.warehouseId}`;
       if (!acc[key]) {
         acc[key] = {
           productId: s.productId,
-          storeId: s.storeId,
+          warehouseId: s.warehouseId,
           totalQuantity: 0,
           stockItems: []
         };
@@ -49,35 +53,35 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
       acc[key].stockItems.push(s);
     }
     return acc;
-  }, {} as Record<string, { productId: string, storeId: string, totalQuantity: number, stockItems: Stock[] }>);
+  }, {} as Record<string, { productId: string, warehouseId: string, totalQuantity: number, stockItems: Stock[] }>);
 
-  type PendingEntry = { productId: string, storeId: string, totalQuantity: number, stockItems: Stock[] };
+  type PendingEntry = { productId: string, warehouseId: string, totalQuantity: number, stockItems: Stock[] };
 
-  // Aplicar filtro de tienda
+  // Aplicar filtro de Almac�n
   const filteredEntries = (Object.values(pendingStockByProduct) as PendingEntry[]).filter(data =>
-    storeFilter === '' || String(data.storeId) === String(storeFilter)
+    storeFilter === '' || String(data.warehouseId) === String(storeFilter)
   );
 
-  // Agrupar por tienda para la vista agrupada
+  // Agrupar por Almac�n para la vista agrupada
   const groupedByStore = filteredEntries.reduce((acc, data) => {
-    const sid = String(data.storeId);
+    const sid = String(data.warehouseId);
     if (!acc[sid]) acc[sid] = [];
     acc[sid].push(data);
     return acc;
   }, {} as Record<string, PendingEntry[]>);
 
-  const handleSelectToOrganize = (productId: string, storeId: string) => {
-    const key = `${productId}-${storeId}`;
+  const handleSelectToOrganize = (productId: string, warehouseId: string) => {
+    const key = `${productId}-${warehouseId}`;
     setSelectedProductToOrganize(productId);
-    setSelectedProductStoreId(storeId);
-    setLocationAssignments([{ locationId: '', quantity: pendingStockByProduct[key].totalQuantity }]);
+    setSelectedProductStoreId(warehouseId);
+    setLocationAssignments([{ warehouseSpaceId: '', quantity: pendingStockByProduct[key].totalQuantity }]);
   };
 
   const handleAddLocationAssignment = () => {
-    setLocationAssignments([...locationAssignments, { locationId: '', quantity: 0 }]);
+    setLocationAssignments([...locationAssignments, { warehouseSpaceId: '', quantity: 0 }]);
   };
 
-  const handleUpdateLocationAssignment = (index: number, field: 'locationId' | 'quantity', value: any) => {
+  const handleUpdateLocationAssignment = (index: number, field: 'warehouseSpaceId' | 'quantity', value: any) => {
     const newAssignments = [...locationAssignments];
     newAssignments[index] = { ...newAssignments[index], [field]: value };
     setLocationAssignments(newAssignments);
@@ -99,7 +103,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
       return;
     }
 
-    if (locationAssignments.some(a => !a.locationId)) {
+    if (locationAssignments.some(a => !a.warehouseSpaceId)) {
       alert('Todas las asignaciones deben tener una ubicación seleccionada.');
       return;
     }
@@ -111,11 +115,11 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
         while (quantityNeeded > 0 && remainingStockItems.length > 0) {
           const currentStock = remainingStockItems[0];
           if (currentStock.quantity <= quantityNeeded) {
-            await updateStockLocation(currentStock.id, assignment.locationId, currentStock.quantity, user?.id);
+            await updateStockLocation(currentStock.id, assignment.warehouseSpaceId, currentStock.quantity, user?.id);
             quantityNeeded -= currentStock.quantity;
             remainingStockItems.shift();
           } else {
-            await updateStockLocation(currentStock.id, assignment.locationId, quantityNeeded, user?.id);
+            await updateStockLocation(currentStock.id, assignment.warehouseSpaceId, quantityNeeded, user?.id);
             currentStock.quantity -= quantityNeeded;
             quantityNeeded = 0;
           }
@@ -127,7 +131,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
       setLocationAssignments([]);
       alert('Mercancía organizada exitosamente.');
     } catch (error: any) {
-      alert(`Error al guardar ubicaciones: ${error?.message || 'Error desconocido. Revisa la consola.'}`);
+      alert(`Error al guardar Espacios de Almac�n: ${error?.message || 'Error desconocido. Revisa la consola.'}`);
       console.error('[handleSaveOrganization] Error:', error);
     }
   };
@@ -162,12 +166,12 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
             </p>
           </div>
           <Button 
-            onClick={handleSaveOrganization} 
-            disabled={!isBalanced || locationAssignments.some(a => !a.locationId)}
+            onClick={() => lockAdjust.execute(handleSaveOrganization)} 
+            disabled={!isBalanced || locationAssignments.some(a => !a.warehouseSpaceId)}
             className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20 w-full sm:w-auto"
           >
             <CheckCircle2 className="w-5 h-5" />
-            Guardar Ubicaciones
+            Guardar Espacios de Almac�n
           </Button>
         </header>
 
@@ -207,7 +211,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-semibold text-slate-900 flex items-center gap-2">
                   <MapPin className="w-5 h-5 text-blue-600" />
-                  Asignación de Ubicaciones
+                  Asignación de Espacios de Almac�n
                 </h3>
                 <Button variant="outline" size="sm" onClick={handleAddLocationAssignment}>
                   + Añadir Ubicación
@@ -219,8 +223,8 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
                     <div className="flex-1 w-full">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Ubicación</label>
                       <select
-                        value={assignment.locationId}
-                        onChange={(e) => handleUpdateLocationAssignment(index, 'locationId', e.target.value)}
+                        value={assignment.warehouseSpaceId}
+                        onChange={(e) => handleUpdateLocationAssignment(index, 'warehouseSpaceId', e.target.value)}
                         className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none"
                       >
                         <option value="">Seleccione ubicación...</option>
@@ -259,7 +263,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
     );
   }
 
-  // ─── Vista principal: lista agrupada por tienda ────────────────────────────
+  // ─── Vista principal: lista agrupada por Almac�n ────────────────────────────
   return (
     <div className="space-y-6">
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
@@ -267,7 +271,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Pendiente por Organizar</h1>
           <p className="text-slate-500 mt-2">Mercancía recibida que requiere asignación de ubicación física.</p>
         </div>
-        {/* Filtro por tienda */}
+        {/* Filtro por Almac�n */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
           <select
@@ -275,8 +279,8 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
             onChange={(e) => setStoreFilter(e.target.value)}
             className="w-full sm:w-auto bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none"
           >
-            <option value="">Todas las tiendas</option>
-            {stores.map(s => (
+            <option value="">Todas las Almacenes</option>
+            {warehouses.map(s => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
@@ -285,20 +289,20 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
 
       {Object.keys(groupedByStore).length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-3xl p-12 shadow-sm text-center text-slate-500">
-          No hay mercancía pendiente por organizar{storeFilter ? ' en esta tienda' : ''}.
+          No hay mercancía pendiente por organizar{storeFilter ? ' en esta Almac�n' : ''}.
         </div>
       ) : (
-        Object.entries(groupedByStore).map(([storeId, items]) => {
-          const store = getStore(storeId);
+        Object.entries(groupedByStore).map(([warehouseId, items]) => {
+          const Warehouse = getStore(warehouseId);
           return (
-            <div key={storeId} className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
-              {/* Header de la tienda */}
+            <div key={warehouseId} className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+              {/* Header de la Almac�n */}
               <div className="flex items-center gap-3 px-6 py-4 bg-slate-50 border-b border-slate-200">
                 <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
                   <Building2 className="w-4 h-4 text-blue-600" />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-slate-900">{store?.name || 'Tienda Desconocida'}</h2>
+                  <h2 className="font-semibold text-slate-900">{Warehouse?.name || 'Almac�n Desconocida'}</h2>
                   <p className="text-xs text-slate-500">{items.length} producto{items.length !== 1 ? 's' : ''} pendiente{items.length !== 1 ? 's' : ''}</p>
                 </div>
               </div>
@@ -325,7 +329,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
                         const isLowStock = data.totalQuantity <= minStock;
 
                         return (
-                          <TableRow key={`${data.productId}-${data.storeId}`} className="group hover:bg-slate-50 transition-colors">
+                          <TableRow key={`${data.productId}-${data.warehouseId}`} className="group hover:bg-slate-50 transition-colors">
                             <TableCell className="font-mono text-slate-500">{product?.code}</TableCell>
                             <TableCell className="font-medium text-slate-900">{product?.name}</TableCell>
                             <TableCell>
@@ -345,7 +349,7 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
                               </span>
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button size="sm" onClick={() => handleSelectToOrganize(data.productId, data.storeId)}>
+                              <Button size="sm" onClick={() => handleSelectToOrganize(data.productId, data.warehouseId)}>
                                 Seleccionar
                               </Button>
                             </TableCell>
@@ -360,6 +364,9 @@ export const PendingOrgTab: React.FC<PendingOrgTabProps> = ({
           );
         })
       )}
+
+      {/* Modales de Llaves de Acceso */}
+      <LockModal {...lockAdjust.lockModalProps} />
     </div>
   );
 };
