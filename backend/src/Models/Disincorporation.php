@@ -23,8 +23,29 @@ class Disincorporation
                     d.approved_at as approvedAt, d.approved_by as approvedBy
              FROM disincorporations d ORDER BY d.created_at DESC"
         )->fetchAll();
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $disIds = array_column($rows, 'id');
+        $placeholders = implode(',', array_map('intval', $disIds));
+
+        $itemRows = $this->db->query(
+            "SELECT id, disincorporation_id as disincorporationId, product_id as productId, warehouse_space_id as warehouseSpaceId,
+                    quantity, reason, notes
+             FROM disincorporation_items WHERE disincorporation_id IN ({$placeholders}) ORDER BY id ASC"
+        )->fetchAll();
+
+        $itemsMap = [];
+        foreach ($itemRows as $item) {
+            $did = (int) $item['disincorporationId'];
+            unset($item['disincorporationId']);
+            $itemsMap[$did][] = $item;
+        }
+
         foreach ($rows as &$row) {
-            $row['items'] = $this->getItems((int) $row['id']);
+            $row['items'] = $itemsMap[(int) $row['id']] ?? [];
         }
         return $rows;
     }

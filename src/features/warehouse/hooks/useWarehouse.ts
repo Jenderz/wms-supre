@@ -45,9 +45,31 @@ export const useWarehouse = () => {
     loadData();
   }, []);
 
+  const reloadStock = async () => {
+    try {
+      const stockData = await StockApi.getAll();
+      setStock(stockData as Stock[]);
+    } catch (error) {
+      console.error('Error reloading stock:', error);
+    }
+  };
+
+  const reloadLotsAndStock = async () => {
+    try {
+      const [lotsData, stockData] = await Promise.all([
+        PickingLotApi.getAll(),
+        StockApi.getAll(),
+      ]);
+      setLots(lotsData as PickingLot[]);
+      setStock(stockData as Stock[]);
+    } catch (error) {
+      console.error('Error reloading lots and stock:', error);
+    }
+  };
+
   const conformLot = async (lotId: string, _itemLocations: Record<string, string>, _userId: string) => {
     await PickingLotApi.conform(lotId);
-    await loadData();
+    await reloadLotsAndStock();
   };
 
   const updateStockLocation = async (stockId: string, newLocationId: string, quantityToMove: number, _userId: string) => {
@@ -60,7 +82,7 @@ export const useWarehouse = () => {
       toLocationId: newLocationId,
       quantity: quantityToMove,
     });
-    await loadData();
+    await reloadStock();
   };
 
   const updateMinStock = async (productId: string, warehouseId: string, newMinStock: number) => {
@@ -76,7 +98,7 @@ export const useWarehouse = () => {
       quantity: stockItem.quantity,
       minStock: newMinStock,
     });
-    await loadData();
+    await reloadStock();
   };
 
   const updateStockQuantity = async (stockId: string, newQuantity: number) => {
@@ -89,12 +111,21 @@ export const useWarehouse = () => {
       quantity: newQuantity,
       minStock: stockItem.minStock,
     });
-    await loadData();
+    await reloadStock();
   };
 
   const updateProduct = async (productId: string, data: unknown) => {
     await ProductApi.update(productId, data);
-    await loadData();
+    try {
+      const [productsData, stockData] = await Promise.all([
+        ProductApi.getAll(),
+        StockApi.getAll(),
+      ]);
+      setProducts(productsData as Product[]);
+      setStock(stockData as Stock[]);
+    } catch (error) {
+      console.error('Error reloading product/stock:', error);
+    }
   };
 
   const upsertStock = async (payload: {
@@ -107,7 +138,7 @@ export const useWarehouse = () => {
     deductFromUnassigned?: boolean;
   }) => {
     await StockApi.upsert(payload);
-    await loadData();
+    await reloadStock();
   };
 
   const assignSpace = async (stockId: string, newSpaceId: string | null) => {
@@ -130,7 +161,7 @@ export const useWarehouse = () => {
         minStock: stockItem.minStock,
       });
     }
-    await loadData();
+    await reloadStock();
   };
 
   const getStore          = (id: string) => warehouses.find(s => String(s.id) === String(id));

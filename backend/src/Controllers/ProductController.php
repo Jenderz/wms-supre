@@ -17,7 +17,20 @@ class ProductController
 
     public function index(): void
     {
-        Response::success($this->model->getAll());
+        $page = isset($_GET['page']) ? (int) $_GET['page'] : null;
+        $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : null;
+        $search = isset($_GET['search']) ? trim((string) $_GET['search']) : null;
+        $categoryId = isset($_GET['categoryId']) && $_GET['categoryId'] !== '' ? (int) $_GET['categoryId'] : null;
+
+        // Si no se solicitan parámetros de paginación o búsqueda, mantenemos compatibilidad total
+        // retornando la lista completa directamente en data: [...]
+        if ($page === null && $limit === null && empty($search) && $categoryId === null) {
+            Response::success($this->model->getAll());
+            return;
+        }
+
+        $result = $this->model->getPaginated($page ?? 1, $limit ?? 50, $search, $categoryId);
+        Response::success($result);
     }
 
     public function show(string $id): void

@@ -47,10 +47,23 @@ export const useDisincorporation = () => {
     await loadData();
   };
 
+  const reloadDisincorporationsAndStock = async () => {
+    try {
+      const [disData, stockData] = await Promise.all([
+        DisincorporationApi.getAll(),
+        StockApi.getAll(),
+      ]);
+      setDisincorporations(disData as Disincorporation[]);
+      setStock(stockData as Stock[]);
+    } catch (error) {
+      console.error('Error reloading disincorporations and stock:', error);
+    }
+  };
+
   const approveDisincorporation = async (id: string, _userId: string) => {
     // El backend maneja la reducción de stock y el movimiento OUT automáticamente.
     await DisincorporationApi.approve(id);
-    await loadData();
+    await reloadDisincorporationsAndStock();
   };
 
   const refreshData = () => {

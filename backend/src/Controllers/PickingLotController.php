@@ -64,31 +64,40 @@ class PickingLotController
 
         $stockModel    = new Stock();
         $movementModel = new StockMovement();
+        $db            = \App\Config\Database::getConnection();
 
-        foreach ($lot['items'] as $item) {
-            $stockModel->upsert([
-                'productId'        => $item['productId'],
-                'warehouseId'      => $lot['warehouseId'],
-                'warehouseSpaceId' => null,
-                'quantity'         => $item['quantityToEnter'],
-                'minStock'         => $item['minStockAlert'] ? 1 : 0,
-            ]);
+        $db->beginTransaction();
+        try {
+            foreach ($lot['items'] as $item) {
+                $stockModel->upsert([
+                    'productId'        => $item['productId'],
+                    'warehouseId'      => $lot['warehouseId'],
+                    'warehouseSpaceId' => null,
+                    'quantity'         => $item['quantityToEnter'],
+                    'minStock'         => $item['minStockAlert'] ? 1 : 0,
+                    'isAdditive'       => true,
+                ]);
 
-            $movementModel->create([
-                'productId'        => $item['productId'],
-                'warehouseId'      => $lot['warehouseId'],
-                'warehouseSpaceId' => null,
-                'type'             => 'IN',
-                'reason'           => 'RECEPTION',
-                'quantity'         => $item['quantityToEnter'],
-                'referenceId'      => (int) $id,
-                'createdBy'        => $authUser->user_id,
-                'notes'            => "Conformación de lote #{$lot['lotNumber']}",
-            ]);
+                $movementModel->create([
+                    'productId'        => $item['productId'],
+                    'warehouseId'      => $lot['warehouseId'],
+                    'warehouseSpaceId' => null,
+                    'type'             => 'IN',
+                    'reason'           => 'RECEPTION',
+                    'quantity'         => $item['quantityToEnter'],
+                    'referenceId'      => (int) $id,
+                    'createdBy'        => $authUser->user_id,
+                    'notes'            => "Conformación de lote #{$lot['lotNumber']}",
+                ]);
+            }
+
+            $this->model->conform((int) $id, $authUser->user_id);
+            $db->commit();
+            Response::json(['message' => 'Lote conformado correctamente.']);
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            throw $e;
         }
-
-        $this->model->conform((int) $id, $authUser->user_id);
-        Response::json(['message' => 'Lote conformado correctamente.']);
     }
 
     public function destroy(string $id, object $authUser): void

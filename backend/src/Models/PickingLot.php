@@ -30,12 +30,7 @@ class PickingLot
              ORDER BY pl.created_at DESC"
         )->fetchAll();
 
-        foreach ($lots as &$lot) {
-            $lot['id']          = (string) $lot['id'];
-            $lot['warehouseId'] = (string) $lot['warehouseId'];
-            $lot['createdBy']   = (string) $lot['createdBy'];
-            $lot['items']       = $this->getItems((int) $lot['id']);
-        }
+        $this->hydrateItems($lots);
         return $lots;
     }
 
@@ -158,6 +153,57 @@ class PickingLot
             unset($item['height'], $item['width'], $item['depth']);
         }
         return $items;
+    }
+
+    private function hydrateItems(array &$lots): void
+    {
+        if (empty($lots)) return;
+        $lotIds = array_column($lots, 'id');
+        if (empty($lotIds)) return;
+
+        $placeholders = implode(',', array_map('intval', $lotIds));
+        $stmt = $this->db->query(
+            "SELECT id,
+                    picking_lot_id       AS pickingLotId,
+                    product_id           AS productId,
+                    quantity_to_enter    AS quantityToEnter,
+                    number_of_packages   AS numberOfPackages,
+                    packages_config      AS packagesConfig,
+                    package_dim_height   AS height,
+                    package_dim_width    AS width,
+                    package_dim_depth    AS depth,
+                    min_stock_alert      AS minStockAlert
+             FROM picking_lot_items
+             WHERE picking_lot_id IN ({$placeholders})
+             ORDER BY id ASC"
+        );
+        $allItems = $stmt->fetchAll();
+
+        $itemsMap = [];
+        foreach ($allItems as $item) {
+            $lid = (int) $item['pickingLotId'];
+            $itemsMap[$lid][] = [
+                'id'                => (string) $item['id'],
+                'productId'         => (string) $item['productId'],
+                'quantityToEnter'   => (float) $item['quantityToEnter'],
+                'numberOfPackages'  => (int) $item['numberOfPackages'],
+                'packagesConfig'    => json_decode($item['packagesConfig'] ?? '[]', true) ?: [],
+                'packageDimensions' => [
+                    'height' => $item['height'] !== null ? (float) $item['height'] : null,
+                    'width'  => $item['width'] !== null ? (float) $item['width'] : null,
+                    'depth'  => $item['depth'] !== null ? (float) $item['depth'] : null,
+                ],
+                'minStockAlert'     => (int) ($item['minStockAlert'] ?? 0),
+            ];
+        }
+
+        foreach ($lots as &$lot) {
+            $lid = (int) $lot['id'];
+            $lot['id']          = (string) $lot['id'];
+            $lot['warehouseId'] = (string) $lot['warehouseId'];
+            $lot['createdBy']   = (string) $lot['createdBy'];
+            $lot['items']       = $itemsMap[$lid] ?? [];
+        }
     }
 
     private function syncItems(int $lotId, array $items): void

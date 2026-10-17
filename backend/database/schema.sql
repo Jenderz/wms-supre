@@ -108,7 +108,9 @@ CREATE TABLE products (
     dimension_width  DECIMAL(10,2),
     dimension_depth  DECIMAL(10,2),
     FOREIGN KEY (category_id) REFERENCES categories(id),
-    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL
+    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL,
+    INDEX idx_products_name (name),
+    INDEX idx_products_cat_sub (category_id, subcategory_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Normalización estricta: costos y precios en tablas separadas para analytics
@@ -117,7 +119,8 @@ CREATE TABLE product_costs (
     product_id INT NOT NULL,
     cost       DECIMAL(12,4) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    INDEX idx_costs_covering (product_id, cost)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE product_prices (
@@ -125,7 +128,8 @@ CREATE TABLE product_prices (
     product_id INT NOT NULL,
     price      DECIMAL(12,4) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    INDEX idx_prices_covering (product_id, price)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Relación M:N products <-> warehouses
@@ -162,7 +166,8 @@ CREATE TABLE stock (
     FOREIGN KEY (product_id)         REFERENCES products(id),
     FOREIGN KEY (warehouse_id)       REFERENCES warehouses(id),
     FOREIGN KEY (warehouse_space_id) REFERENCES warehouse_spaces(id) ON DELETE SET NULL,
-    UNIQUE KEY uk_stock_location (product_id, warehouse_id, warehouse_space_id)
+    UNIQUE KEY uk_stock_location (product_id, warehouse_id, warehouse_space_id),
+    INDEX idx_stock_wh_space (warehouse_id, warehouse_space_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -181,7 +186,9 @@ CREATE TABLE picking_lots (
     FOREIGN KEY (warehouse_id)   REFERENCES warehouses(id),
     FOREIGN KEY (created_by) REFERENCES users(id),
     INDEX idx_picking_lots_status (status),
-    INDEX idx_picking_lots_warehouse  (warehouse_id)
+    INDEX idx_picking_lots_warehouse  (warehouse_id),
+    INDEX idx_picking_wh_created (warehouse_id, created_at),
+    INDEX idx_picking_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE picking_lot_items (
@@ -215,7 +222,9 @@ CREATE TABLE disincorporations (
     FOREIGN KEY (warehouse_id)   REFERENCES warehouses(id),
     FOREIGN KEY (created_by) REFERENCES users(id),
     FOREIGN KEY (approved_by) REFERENCES users(id),
-    INDEX idx_disincorporations_status (status)
+    INDEX idx_disincorporations_status (status),
+    INDEX idx_disinc_created_at (created_at),
+    INDEX idx_disinc_wh_status (warehouse_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE disincorporation_items (
@@ -254,7 +263,9 @@ CREATE TABLE stock_movements (
     INDEX idx_movements_product (product_id),
     INDEX idx_movements_warehouse   (warehouse_id),
     INDEX idx_movements_type    (type),
-    INDEX idx_movements_date    (created_at)
+    INDEX idx_movements_date    (created_at),
+    INDEX idx_movements_wh_created (warehouse_id, created_at),
+    INDEX idx_movements_prod_created (product_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -318,7 +329,10 @@ CREATE TABLE IF NOT EXISTS dispatch_orders (
     INDEX idx_dispatch_status (status),
     INDEX idx_dispatch_warehouse (warehouse_id),
     INDEX idx_dispatch_code (code),
-    INDEX idx_dispatch_origin (origin)
+    INDEX idx_dispatch_origin (origin),
+    INDEX idx_dispatch_wh_created (warehouse_id, created_at),
+    INDEX idx_dispatch_wh_status (warehouse_id, status),
+    INDEX idx_dispatch_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS dispatch_order_items (

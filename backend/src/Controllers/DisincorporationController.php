@@ -65,34 +65,42 @@ class DisincorporationController
         $stockModel    = new Stock();
         $movementModel = new StockMovement();
         $warehouseId   = (int) ($record['warehouseId'] ?? $record['storeId']);
+        $db            = \App\Config\Database::getConnection();
 
-        foreach ($record['items'] as $item) {
-            $spaceId = isset($item['warehouseSpaceId']) && $item['warehouseSpaceId'] !== null
-                ? (int) $item['warehouseSpaceId']
-                : (isset($item['locationId']) ? (int) $item['locationId'] : null);
+        $db->beginTransaction();
+        try {
+            foreach ($record['items'] as $item) {
+                $spaceId = isset($item['warehouseSpaceId']) && $item['warehouseSpaceId'] !== null
+                    ? (int) $item['warehouseSpaceId']
+                    : (isset($item['locationId']) ? (int) $item['locationId'] : null);
 
-            $stockModel->adjustQuantity(
-                (int) $item['productId'],
-                $warehouseId,
-                $spaceId,
-                -(float) $item['quantity'] // Resta stock
-            );
+                $stockModel->adjustQuantity(
+                    (int) $item['productId'],
+                    $warehouseId,
+                    $spaceId,
+                    -(float) $item['quantity'] // Resta stock
+                );
 
-            $movementModel->create([
-                'productId'        => $item['productId'],
-                'warehouseId'      => $warehouseId,
-                'warehouseSpaceId' => $spaceId,
-                'type'             => 'OUT',
-                'reason'           => 'DISINCORPORATION',
-                'quantity'         => $item['quantity'],
-                'referenceId'      => (int) $id,
-                'createdBy'        => $authUser->user_id,
-                'notes'            => $item['reason'] ?? 'Desincorporación aprobada',
-            ]);
+                $movementModel->create([
+                    'productId'        => $item['productId'],
+                    'warehouseId'      => $warehouseId,
+                    'warehouseSpaceId' => $spaceId,
+                    'type'             => 'OUT',
+                    'reason'           => 'DISINCORPORATION',
+                    'quantity'         => $item['quantity'],
+                    'referenceId'      => (int) $id,
+                    'createdBy'        => $authUser->user_id,
+                    'notes'            => $item['reason'] ?? 'Desincorporación aprobada',
+                ]);
+            }
+
+            $this->model->changeStatus((int) $id, 'APPROVED', $authUser->user_id);
+            $db->commit();
+            Response::json(['message' => 'Desincorporación aprobada y stock actualizado.']);
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            throw $e;
         }
-
-        $this->model->changeStatus((int) $id, 'APPROVED', $authUser->user_id);
-        Response::json(['message' => 'Desincorporación aprobada y stock actualizado.']);
     }
 
     public function reject(string $id, object $authUser): void

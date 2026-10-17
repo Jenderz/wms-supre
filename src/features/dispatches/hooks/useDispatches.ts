@@ -57,27 +57,42 @@ export const useDispatches = () => {
       setWarehouseSpaces(ws as WarehouseSpace[]);
 
       // Normalizar ítems devueltos por la API
-      const normalizedDispatches = (Array.isArray(d) ? d : []).map((ord: any) => ({
-        ...ord,
-        id: String(ord.id),
-        warehouseId: String(ord.warehouseId),
-        status: ord.status === 'PROCESANDO' ? 'EN_PROCESO' : (ord.status || 'PENDIENTE'),
-        items: (Array.isArray(ord.items) ? ord.items : []).map((item: any) => ({
-          ...item,
-          id: String(item.id),
-          productId: String(item.productId),
-          requestedQuantity: Number(item.requestedQuantity ?? item.quantityRequired ?? 0),
-          quantityRequired: Number(item.requestedQuantity ?? item.quantityRequired ?? 0),
-          warehouseSpaceId: item.warehouseSpaceId ? String(item.warehouseSpaceId) : null,
-        })),
-      }));
-
-      setDispatches(normalizedDispatches as DispatchOrder[]);
+      setDispatches(normalizeDispatches(d));
     } catch (err: any) {
       console.error('[useDispatches] carga fallida:', err);
       setError(err?.message || 'Error al cargar datos de despachos.');
     } finally {
       setIsLoading(false);
+    }
+  }, []);
+
+  const normalizeDispatches = (d: any[]): DispatchOrder[] => {
+    return (Array.isArray(d) ? d : []).map((ord: any) => ({
+      ...ord,
+      id: String(ord.id),
+      warehouseId: String(ord.warehouseId),
+      status: ord.status === 'PROCESANDO' ? 'EN_PROCESO' : (ord.status || 'PENDIENTE'),
+      items: (Array.isArray(ord.items) ? ord.items : []).map((item: any) => ({
+        ...item,
+        id: String(item.id),
+        productId: String(item.productId),
+        requestedQuantity: Number(item.requestedQuantity ?? item.quantityRequired ?? 0),
+        quantityRequired: Number(item.requestedQuantity ?? item.quantityRequired ?? 0),
+        warehouseSpaceId: item.warehouseSpaceId ? String(item.warehouseSpaceId) : null,
+      })),
+    }));
+  };
+
+  const reloadDispatchesAndStock = useCallback(async () => {
+    try {
+      const [s, d] = await Promise.all([
+        StockApi.getAll(),
+        DispatchApi.getAll(),
+      ]);
+      setStock(s as Stock[]);
+      setDispatches(normalizeDispatches(d));
+    } catch (err: any) {
+      console.error('[useDispatches] error al recargar despachos y stock:', err);
     }
   }, []);
 
@@ -102,11 +117,11 @@ export const useDispatches = () => {
 
         if (order.id) {
           const updated = await DispatchApi.update(order.id, payload);
-          await load();
+          await reloadDispatchesAndStock();
           return (updated as unknown) as DispatchOrder;
         } else {
           const created = await DispatchApi.create(payload);
-          await load();
+          await reloadDispatchesAndStock();
           return (created as unknown) as DispatchOrder;
         }
       } catch (err: any) {
@@ -115,7 +130,7 @@ export const useDispatches = () => {
         throw err;
       }
     },
-    [load],
+    [reloadDispatchesAndStock],
   );
 
   // Guardado en segundo plano sin activar spinner global (sin llamar load())
@@ -158,13 +173,13 @@ export const useDispatches = () => {
     setError(null);
     try {
       await DispatchApi.remove(id);
-      await load();
+      await reloadDispatchesAndStock();
     } catch (err: any) {
       console.error('[useDispatches] error al eliminar:', err);
       setError(err?.message || 'Error al eliminar la orden de despacho.');
       throw err;
     }
-  }, [load]);
+  }, [reloadDispatchesAndStock]);
 
   // ── Cambiar estado en Backend ────────────────────────────────────────────────
   const updateStatus = useCallback(
@@ -172,14 +187,14 @@ export const useDispatches = () => {
       setError(null);
       try {
         await DispatchApi.updateStatus(id, status);
-        await load(); // Recarga stock y movimientos actualizados si fue DESPACHADO
+        await reloadDispatchesAndStock(); // Recarga stock y movimientos actualizados si fue DESPACHADO
       } catch (err: any) {
         console.error('[useDispatches] error al cambiar estado:', err);
         setError(err?.message || 'Error al actualizar el estado de despacho.');
         throw err;
       }
     },
-    [load],
+    [reloadDispatchesAndStock],
   );
 
   // ── Lookups ─────────────────────────────────────────────────────────────────
@@ -341,7 +356,7 @@ export const useDispatches = () => {
     return products.filter(
       p =>
         stockProductIds.has(String(p.id)) ||
-        (Array.isArray(p.enabledWarehouses) && p.enabledWarehouses.includes(warehouseId)),
+        (Array.isArray(p.enabledWarehouses) && p.enabledWarehouses.map(String).includes(String(warehouseId))),
     );
   };
 

@@ -31,6 +31,24 @@ export const useCatalog = () => {
     loadData();
   }, []);
 
+  const reloadProducts = async () => {
+    try {
+      const productsData = await ProductApi.getAll();
+      setProductsState(productsData as Product[]);
+    } catch (error) {
+      console.error('Error reloading products:', error);
+    }
+  };
+
+  const reloadCategories = async () => {
+    try {
+      const categoriesData = await CategoryApi.getAll();
+      setCategories(categoriesData as Category[]);
+    } catch (error) {
+      console.error('Error reloading categories:', error);
+    }
+  };
+
   const saveProduct = async (product: Product) => {
     if (product.id) {
       // Actualización: solo actualizar el producto, no tocar el stock existente
@@ -56,7 +74,7 @@ export const useCatalog = () => {
         );
       }
     }
-    await loadData();
+    await reloadProducts();
   };
 
   const setAllProducts = async (products: Product[]) => {
@@ -66,12 +84,12 @@ export const useCatalog = () => {
         p.id ? ProductApi.update(p.id, p) : ProductApi.create(p)
       )
     );
-    await loadData();
+    await reloadProducts();
   };
 
   const deleteProduct = async (id: string) => {
     await ProductApi.remove(id);
-    await loadData();
+    await reloadProducts();
   };
 
   const batchAction = async (
@@ -80,7 +98,7 @@ export const useCatalog = () => {
     value?: string | null
   ) => {
     await ProductApi.batch({ action, productIds, value });
-    await loadData();
+    await reloadProducts();
   };
 
   const saveCategory = async (category: Category) => {
@@ -89,12 +107,12 @@ export const useCatalog = () => {
     } else {
       await CategoryApi.create(category);
     }
-    await loadData();
+    await reloadCategories();
   };
 
   const deleteCategory = async (id: string) => {
     await CategoryApi.remove(id);
-    await loadData();
+    await reloadCategories();
   };
 
   /**

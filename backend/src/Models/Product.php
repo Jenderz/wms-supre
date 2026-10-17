@@ -29,17 +29,71 @@ class Product
              GROUP BY p.id"
         )->fetchAll();
 
-        foreach ($rows as &$row) {
-            $row['dimensions']        = ['height' => $row['height'], 'width' => $row['width'], 'depth' => $row['depth']];
-            $row['enabledWarehouses'] = $row['enabled_warehouses'] ? array_map('intval', explode(',', $row['enabled_warehouses'])) : [];
-            $row['providers']         = $row['providers'] ? array_map('intval', explode(',', $row['providers'])) : [];
-            unset($row['height'], $row['width'], $row['depth'], $row['enabled_warehouses']);
-
-            // Cargar costos y precios
-            $row['costs']  = $this->loadSub('product_costs', 'cost', $row['id']);
-            $row['prices'] = $this->loadSub('product_prices', 'price', $row['id']);
-        }
+        $this->hydrateSubData($rows);
         return $rows;
+    }
+
+    public function getPaginated(int $page = 1, int $limit = 50, ?string $search = null, ?int $categoryId = null): array
+    {
+        $page = max(1, $page);
+        $limit = max(1, min(200, $limit));
+        $offset = ($page - 1) * $limit;
+
+        $where = [];
+        $params = [];
+
+        if ($search !== null && $search !== '') {
+            $where[] = "(p.name LIKE :search_name OR p.code LIKE :search_code)";
+            $params[':search_name'] = "%{$search}%";
+            $params[':search_code'] = "%{$search}%";
+        }
+
+        if ($categoryId !== null) {
+            $where[] = "p.category_id = :cat_id";
+            $params[':cat_id'] = $categoryId;
+        }
+
+        $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
+
+        // Conteo total para paginación
+        $countStmt = $this->db->prepare("SELECT COUNT(*) FROM products p {$whereClause}");
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
+
+        // Consulta de página
+        $sql = "SELECT p.id, p.code, p.code_type as codeType, p.name, p.image_url as imageUrl, p.footer_url as footerUrl,
+                       p.category_id as categoryId, p.subcategory_id as subcategoryId,
+                       p.dimension_height as height, p.dimension_width as width, p.dimension_depth as depth,
+                       GROUP_CONCAT(DISTINCT pw.warehouse_id) as enabled_warehouses,
+                       GROUP_CONCAT(DISTINCT pp.provider_id) as providers
+                FROM products p
+                LEFT JOIN product_warehouses pw ON p.id = pw.product_id
+                LEFT JOIN product_providers pp ON p.id = pp.product_id
+                {$whereClause}
+                GROUP BY p.id
+                ORDER BY p.id DESC
+                LIMIT :limit OFFSET :offset";
+
+        $stmt = $this->db->prepare($sql);
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v);
+        }
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
+
+        $this->hydrateSubData($rows);
+
+        return [
+            'items' => $rows,
+            'pagination' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'totalPages' => (int) ceil($total / $limit),
+            ],
+        ];
     }
 
     public function findById(int $id): ?array
@@ -58,11 +112,11 @@ class Product
         
         $stmtPw = $this->db->prepare("SELECT warehouse_id FROM product_warehouses WHERE product_id = :id");
         $stmtPw->execute([':id' => $id]);
-        $row['enabledWarehouses'] = array_map('intval', array_column($stmtPw->fetchAll(), 'warehouse_id'));
+        $row['enabledWarehouses'] = array_map('strval', array_column($stmtPw->fetchAll(), 'warehouse_id'));
 
         $stmtPp = $this->db->prepare("SELECT provider_id FROM product_providers WHERE product_id = :id");
         $stmtPp->execute([':id' => $id]);
-        $row['providers'] = array_map('intval', array_column($stmtPp->fetchAll(), 'provider_id'));
+        $row['providers'] = array_map('strval', array_column($stmtPp->fetchAll(), 'provider_id'));
 
         $row['costs']  = $this->loadSub('product_costs', 'cost', $id);
         $row['prices'] = $this->loadSub('product_prices', 'price', $id);
@@ -233,7 +287,58 @@ class Product
     {
         $stmt = $this->db->prepare("SELECT {$column} FROM {$table} WHERE product_id = :pid ORDER BY id");
         $stmt->execute([':pid' => $productId]);
-        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+        return array_map('floatval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    private function hydrateSubData(array &$rows): void
+    {
+        if (empty($rows)) {
+            return;
+        }
+
+        $productIds = array_column($rows, 'id');
+        if (empty($productIds)) {
+            return;
+        }
+
+        $placeholders = implode(',', array_map('intval', $productIds));
+
+        // Carga por lotes de costos en 1 sola consulta
+        $costsMap = [];
+        $costRows = $this->db->query(
+            "SELECT product_id, cost FROM product_costs WHERE product_id IN ({$placeholders}) ORDER BY id"
+        )->fetchAll();
+        foreach ($costRows as $cr) {
+            $costsMap[(int)$cr['product_id']][] = (float) $cr['cost'];
+        }
+
+        // Carga por lotes de precios en 1 sola consulta
+        $pricesMap = [];
+        $priceRows = $this->db->query(
+            "SELECT product_id, price FROM product_prices WHERE product_id IN ({$placeholders}) ORDER BY id"
+        )->fetchAll();
+        foreach ($priceRows as $pr) {
+            $pricesMap[(int)$pr['product_id']][] = (float) $pr['price'];
+        }
+
+        foreach ($rows as &$row) {
+            $pid = (int) $row['id'];
+            $row['dimensions']        = [
+                'height' => $row['height'] !== null ? (float) $row['height'] : null,
+                'width'  => $row['width'] !== null ? (float) $row['width'] : null,
+                'depth'  => $row['depth'] !== null ? (float) $row['depth'] : null,
+            ];
+            $row['enabledWarehouses'] = !empty($row['enabled_warehouses'])
+                ? array_map('strval', explode(',', (string) $row['enabled_warehouses']))
+                : [];
+            $row['providers']         = !empty($row['providers'])
+                ? array_map('strval', explode(',', (string) $row['providers']))
+                : [];
+            unset($row['height'], $row['width'], $row['depth'], $row['enabled_warehouses']);
+
+            $row['costs']  = $costsMap[$pid] ?? [];
+            $row['prices'] = $pricesMap[$pid] ?? [];
+        }
     }
 
     // ================================================================

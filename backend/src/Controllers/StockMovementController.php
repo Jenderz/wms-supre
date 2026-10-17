@@ -31,6 +31,29 @@ class StockMovementController
             return;
         }
 
-        Response::success($this->model->getAll());
+        $page = isset($_GET['page']) ? (int) $_GET['page'] : null;
+        $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : null;
+        $type = isset($_GET['type']) ? trim((string) $_GET['type']) : null;
+        $warehouseId = isset($_GET['warehouseId']) && $_GET['warehouseId'] !== '' ? (int) $_GET['warehouseId'] : null;
+        $productId = isset($_GET['productId']) && $_GET['productId'] !== '' ? (int) $_GET['productId'] : null;
+        $dateFrom = isset($_GET['dateFrom']) ? trim((string) $_GET['dateFrom']) : null;
+        $dateTo = isset($_GET['dateTo']) ? trim((string) $_GET['dateTo']) : null;
+
+        // Modo retrocompatible para llamadas sin parámetros
+        if ($page === null && $limit === null && empty($type) && $warehouseId === null && $productId === null && empty($dateFrom) && empty($dateTo)) {
+            Response::success($this->model->getAll());
+            return;
+        }
+
+        $result = $this->model->getPaginated(
+            $page ?? 1,
+            $limit ?? 50,
+            $type,
+            $warehouseId,
+            $productId,
+            $dateFrom,
+            $dateTo
+        );
+        Response::success($result);
     }
 }

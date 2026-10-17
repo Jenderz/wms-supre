@@ -127,8 +127,33 @@ export const ProviderApi = {
 // ===========================================================
 // Products
 // ===========================================================
+export interface PaginatedResult<T> {
+  items: T[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export interface ProductFilterParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  categoryId?: number | string;
+}
+
 export const ProductApi = {
   getAll:  ()                        => get<unknown[]>('/products'),
+  getPaginated: (params: ProductFilterParams = {}) => {
+    const q = new URLSearchParams();
+    if (params.page !== undefined) q.append('page', String(params.page));
+    if (params.limit !== undefined) q.append('limit', String(params.limit));
+    if (params.search) q.append('search', params.search);
+    if (params.categoryId !== undefined) q.append('categoryId', String(params.categoryId));
+    return get<PaginatedResult<unknown>>(`/products?${q.toString()}`);
+  },
   getOne:  (id: string | number)     => get<unknown>(`/products/${id}`),
   create:  (data: unknown)           => post<{ id: number }>('/products', data),
   update:  (id: string | number, data: unknown) => put<unknown>(`/products/${id}`, data),
@@ -217,8 +242,29 @@ export const DisincorporationApi = {
 // ===========================================================
 // Stock Movements
 // ===========================================================
+export interface MovementFilterParams {
+  page?: number;
+  limit?: number;
+  type?: string;
+  warehouseId?: number | string;
+  productId?: number | string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
 export const MovementApi = {
   getAll: () => get<unknown[]>('/movements'),
+  getPaginated: (params: MovementFilterParams = {}) => {
+    const q = new URLSearchParams();
+    if (params.page !== undefined) q.append('page', String(params.page));
+    if (params.limit !== undefined) q.append('limit', String(params.limit));
+    if (params.type) q.append('type', params.type);
+    if (params.warehouseId !== undefined) q.append('warehouseId', String(params.warehouseId));
+    if (params.productId !== undefined) q.append('productId', String(params.productId));
+    if (params.dateFrom) q.append('dateFrom', params.dateFrom);
+    if (params.dateTo) q.append('dateTo', params.dateTo);
+    return get<PaginatedResult<unknown>>(`/movements?${q.toString()}`);
+  },
 };
 
 // ===========================================================
@@ -236,8 +282,28 @@ export const LockApi = {
 // ===========================================================
 // Dispatch Orders (Despachos)
 // ===========================================================
+export interface DispatchFilterParams {
+  page?: number;
+  limit?: number;
+  warehouseId?: number | string;
+  status?: string;
+  search?: string;
+}
+
 export const DispatchApi = {
-  getAll:  ()                                    => get<unknown[]>('/dispatches'),
+  getAll: (warehouseId?: number | string) => {
+    const q = warehouseId ? `?warehouse_id=${warehouseId}` : '';
+    return get<unknown[]>(`/dispatches${q}`);
+  },
+  getPaginated: (params: DispatchFilterParams = {}) => {
+    const q = new URLSearchParams();
+    if (params.page !== undefined) q.append('page', String(params.page));
+    if (params.limit !== undefined) q.append('limit', String(params.limit));
+    if (params.warehouseId !== undefined) q.append('warehouseId', String(params.warehouseId));
+    if (params.status) q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    return get<PaginatedResult<unknown>>(`/dispatches?${q.toString()}`);
+  },
   getOne:  (id: string | number)                 => get<unknown>(`/dispatches/${id}`),
   create:  (data: unknown)                       => post<{ id: number }>('/dispatches', data),
   update:  (id: string | number, data: unknown)  => put<unknown>(`/dispatches/${id}`, data),

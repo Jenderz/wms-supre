@@ -59,12 +59,88 @@ class DispatchOrder
         $stmt->execute($params);
         $orders = $stmt->fetchAll();
 
-        foreach ($orders as &$order) {
-            $order['id'] = (string) $order['id'];
-            $order['warehouseId'] = (string) $order['warehouseId'];
-            $order['items'] = $this->getItems((int) $order['id']);
-        }
+        $this->hydrateItems($orders);
         return $orders;
+    }
+
+    public function getPaginated(
+        int $page = 1,
+        int $limit = 50,
+        ?int $warehouseId = null,
+        ?string $status = null,
+        ?string $search = null
+    ): array {
+        $page = max(1, $page);
+        $limit = max(1, min(200, $limit));
+        $offset = ($page - 1) * $limit;
+
+        $where = [];
+        $params = [];
+
+        if ($warehouseId !== null) {
+            $where[] = "d.warehouse_id = :warehouse_id";
+            $params[':warehouse_id'] = $warehouseId;
+        }
+
+        if ($status !== null && $status !== '' && $status !== 'ALL') {
+            $where[] = "d.status = :status";
+            $params[':status'] = $status;
+        }
+
+        if ($search !== null && $search !== '') {
+            $where[] = "(d.code LIKE :s_code OR d.client_name LIKE :s_client OR d.requested_by LIKE :s_req)";
+            $params[':s_code'] = "%{$search}%";
+            $params[':s_client'] = "%{$search}%";
+            $params[':s_req'] = "%{$search}%";
+        }
+
+        $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
+
+        // Total
+        $countStmt = $this->db->prepare("SELECT COUNT(*) FROM dispatch_orders d {$whereClause}");
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
+
+        // Orders
+        $sql = "SELECT d.id,
+                       d.code,
+                       d.warehouse_id   AS warehouseId,
+                       d.requested_by   AS requestedBy,
+                       d.client_name    AS clientName,
+                       d.delivery_type  AS deliveryType,
+                       d.origin,
+                       d.status,
+                       d.notes,
+                       d.created_by     AS createdBy,
+                       d.dispatched_by  AS dispatchedBy,
+                       d.created_at     AS createdAt,
+                       d.updated_at     AS updatedAt,
+                       d.dispatched_at  AS dispatchedAt
+                FROM dispatch_orders d
+                {$whereClause}
+                ORDER BY d.created_at DESC
+                LIMIT :limit OFFSET :offset";
+
+        $stmt = $this->db->prepare($sql);
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v);
+        }
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $orders = $stmt->fetchAll();
+
+        $this->hydrateItems($orders);
+
+        return [
+            'items' => $orders,
+            'pagination' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'totalPages' => (int) ceil($total / $limit),
+            ],
+        ];
     }
 
     public function findById(int $id): ?array
@@ -134,6 +210,65 @@ class DispatchOrder
             }
         }
         return $items;
+    }
+
+    private function hydrateItems(array &$orders): void
+    {
+        if (empty($orders)) return;
+        $orderIds = array_column($orders, 'id');
+        if (empty($orderIds)) return;
+
+        $placeholders = implode(',', array_map('intval', $orderIds));
+        $stmt = $this->db->query(
+            "SELECT i.id,
+                    i.dispatch_order_id    AS dispatchOrderId,
+                    i.product_id           AS productId,
+                    i.requested_quantity   AS requestedQuantity,
+                    i.warehouse_space_id   AS warehouseSpaceId,
+                    i.space_selection_type AS spaceSelectionType,
+                    i.dispatch_status      AS dispatchStatus,
+                    i.notes
+             FROM dispatch_order_items i
+             WHERE i.dispatch_order_id IN ({$placeholders})
+             ORDER BY i.id ASC"
+        );
+        $allItems = $stmt->fetchAll();
+
+        $itemsMap = [];
+        foreach ($allItems as $item) {
+            $oid = (int) $item['dispatchOrderId'];
+            $formatted = [
+                'id'                 => (string) $item['id'],
+                'productId'          => (string) $item['productId'],
+                'requestedQuantity'  => (float) $item['requestedQuantity'],
+                'quantityRequired'   => (float) $item['requestedQuantity'],
+                'warehouseSpaceId'   => $item['warehouseSpaceId'] !== null ? (string) $item['warehouseSpaceId'] : null,
+                'spaceSelectionType' => $item['spaceSelectionType'],
+                'dispatchStatus'     => $item['dispatchStatus'],
+                'notes'              => $item['notes'],
+            ];
+
+            if (!empty($item['notes']) && (str_starts_with(trim($item['notes']), '[') || str_starts_with(trim($item['notes']), '{'))) {
+                $decoded = json_decode($item['notes'], true);
+                if (is_array($decoded)) {
+                    $formatted['warehouseSpaceAssignments'] = $decoded;
+                }
+            }
+            if (empty($formatted['warehouseSpaceAssignments']) && !empty($item['warehouseSpaceId'])) {
+                $formatted['warehouseSpaceAssignments'] = [
+                    ['warehouseSpaceId' => (string) $item['warehouseSpaceId'], 'quantity' => (float) $item['requestedQuantity']]
+                ];
+            }
+
+            $itemsMap[$oid][] = $formatted;
+        }
+
+        foreach ($orders as &$order) {
+            $oid = (int) $order['id'];
+            $order['id'] = (string) $order['id'];
+            $order['warehouseId'] = (string) $order['warehouseId'];
+            $order['items'] = $itemsMap[$oid] ?? [];
+        }
     }
 
     public function generateNextCode(): string

@@ -18,8 +18,26 @@ class DispatchController
 
     public function index(): void
     {
-        $warehouseId = isset($_GET['warehouse_id']) ? (int) $_GET['warehouse_id'] : null;
-        Response::success($this->model->getAll($warehouseId));
+        $warehouseId = isset($_GET['warehouse_id']) ? (int) $_GET['warehouse_id'] : (isset($_GET['warehouseId']) ? (int) $_GET['warehouseId'] : null);
+        $page = isset($_GET['page']) ? (int) $_GET['page'] : null;
+        $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : null;
+        $status = isset($_GET['status']) ? trim((string) $_GET['status']) : null;
+        $search = isset($_GET['search']) ? trim((string) $_GET['search']) : null;
+
+        // Modo retrocompatible si no se solicitan parámetros de paginación o filtros
+        if ($page === null && $limit === null && empty($status) && empty($search)) {
+            Response::success($this->model->getAll($warehouseId));
+            return;
+        }
+
+        $result = $this->model->getPaginated(
+            $page ?? 1,
+            $limit ?? 50,
+            $warehouseId,
+            $status,
+            $search
+        );
+        Response::success($result);
     }
 
     public function show(string $id): void

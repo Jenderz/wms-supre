@@ -49,8 +49,12 @@ class Stock
             ? (int) $data['warehouseSpaceId']
             : null;
         $deductFromUnassigned = !empty($data['deductFromUnassigned']) && $spaceId !== null;
+        $isAdditive           = !empty($data['isAdditive']);
 
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
         try {
             // Asegurarse de que el almacén esté asignado al producto
             $this->db->prepare(
@@ -61,12 +65,15 @@ class Stock
             ]);
 
             // Upsert en la ubicación destino (o en pendientes si spaceId es null)
+            $qtyUpdate = $isAdditive ? "quantity = quantity + VALUES(quantity)" : "quantity = VALUES(quantity)";
+            $minStockUpdate = $isAdditive ? "min_stock = IF(VALUES(min_stock) > 0, VALUES(min_stock), min_stock)" : "min_stock = VALUES(min_stock)";
+
             $stmt = $this->db->prepare(
                 "INSERT INTO stock (product_id, warehouse_id, warehouse_space_id, space_key, quantity, min_stock, min_stock_dispatch)
                  VALUES (:product_id, :warehouse_id, :warehouse_space_id, :space_key, :quantity, :min_stock, :min_stock_dispatch)
                  ON DUPLICATE KEY UPDATE
-                    quantity              = VALUES(quantity),
-                    min_stock             = VALUES(min_stock),
+                    {$qtyUpdate},
+                    {$minStockUpdate},
                     min_stock_dispatch    = VALUES(min_stock_dispatch),
                     warehouse_space_id    = VALUES(warehouse_space_id)"
             );
@@ -117,28 +124,31 @@ class Stock
                 ]);
             }
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
 
     public function adjustQuantity(int $productId, int $warehouseId, ?int $warehouseSpaceId, float $delta): void
     {
+        $spaceKey = $warehouseSpaceId ?? 0;
         $stmt = $this->db->prepare(
             "UPDATE stock SET quantity = quantity + :delta
              WHERE product_id = :product_id
                AND warehouse_id = :warehouse_id
-               AND (warehouse_space_id = :warehouse_space_id
-                    OR (warehouse_space_id IS NULL AND :warehouse_space_id_check IS NULL))"
+               AND space_key = :space_key"
         );
         $stmt->execute([
-            ':delta'                    => $delta,
-            ':product_id'               => $productId,
-            ':warehouse_id'             => $warehouseId,
-            ':warehouse_space_id'       => $warehouseSpaceId,
-            ':warehouse_space_id_check' => $warehouseSpaceId,
+            ':delta'      => $delta,
+            ':product_id' => $productId,
+            ':warehouse_id' => $warehouseId,
+            ':space_key'  => $spaceKey,
         ]);
     }
 
