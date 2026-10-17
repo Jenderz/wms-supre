@@ -69,4 +69,65 @@ class ProductController
         $this->model->delete((int) $id);
         Response::noContent();
     }
+
+    public function batchAction(): void
+    {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        $action     = $data['action']     ?? '';
+        $productIds = $data['productIds'] ?? [];
+        $value      = $data['value']      ?? null;
+
+        if (empty($productIds) || !is_array($productIds)) {
+            Response::error('productIds debe ser un array no vacío.', 400);
+            return;
+        }
+
+        $validActions = ['delete', 'setCategory', 'setSubcategory', 'setProvider', 'addWarehouse'];
+        if (!in_array($action, $validActions, true)) {
+            Response::error("Acción '{$action}' no reconocida.", 400);
+            return;
+        }
+
+        try {
+            switch ($action) {
+                case 'delete':
+                    $this->model->batchDelete($productIds);
+                    break;
+
+                case 'setCategory':
+                    if (empty($value)) {
+                        Response::error('Se requiere value (categoryId).', 400);
+                        return;
+                    }
+                    $this->model->batchSetCategory($productIds, (int) $value);
+                    break;
+
+                case 'setSubcategory':
+                    // value puede ser null para quitar subcategoría
+                    $this->model->batchSetSubcategory($productIds, $value !== null ? (int) $value : null);
+                    break;
+
+                case 'setProvider':
+                    if (empty($value)) {
+                        Response::error('Se requiere value (providerId).', 400);
+                        return;
+                    }
+                    $this->model->batchSetProvider($productIds, (int) $value);
+                    break;
+
+                case 'addWarehouse':
+                    if (empty($value)) {
+                        Response::error('Se requiere value (warehouseId).', 400);
+                        return;
+                    }
+                    $this->model->batchAddWarehouse($productIds, (int) $value);
+                    break;
+            }
+
+            Response::json(['message' => 'Operación completada.', 'affected' => count($productIds)]);
+        } catch (\PDOException $e) {
+            Response::error('Error de base de datos: ' . $e->getMessage(), 500);
+        }
+    }
 }

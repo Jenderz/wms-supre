@@ -1,10 +1,18 @@
 <?php
+require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/src/Config/Database.php';
+
+use Dotenv\Dotenv;
+
+if (file_exists(__DIR__ . '/.env')) {
+    $dotenv = Dotenv::createImmutable(__DIR__);
+    $dotenv->safeLoad();
+}
 
 try {
     $db = \App\Config\Database::getConnection();
 
-    // Create subcategories table
+    // Create subcategories table if not exists
     $db->exec("
         CREATE TABLE IF NOT EXISTS subcategories (
             id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -15,23 +23,19 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
 
-    // Agregar el UNIQUE KEY si la tabla ya existia sin el (idempotente)
     try {
         $db->exec("ALTER TABLE subcategories ADD UNIQUE KEY uk_subcategory_name (category_id, name);");
     } catch (\PDOException $e) {
-        // Ignorar: el indice ya existe (codigo 1061)
+        // Ignorar si ya existe
     }
 
-    // Add subcategory_id to products
-    // We ignore error if column already exists
     try {
         $db->exec("ALTER TABLE products ADD COLUMN subcategory_id INT NULL;");
         $db->exec("ALTER TABLE products ADD FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL;");
     } catch (\PDOException $e) {
-        // Ignore, probably already exists
+        // Ignorar si ya existe
     }
 
-    // Create product_providers
     $db->exec("
         CREATE TABLE IF NOT EXISTS product_providers (
             product_id INT NOT NULL,
@@ -42,7 +46,26 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
 
+    // Ejecutar todas las migraciones SQL en backend/database/migrations/
+    $migrationsDir = __DIR__ . '/database/migrations';
+    if (is_dir($migrationsDir)) {
+        $files = glob($migrationsDir . '/*.sql');
+        sort($files);
+        foreach ($files as $file) {
+            $sql = file_get_contents($file);
+            if (!empty(trim($sql))) {
+                try {
+                    $db->exec($sql);
+                    echo "Ejecutada migración: " . basename($file) . "\n";
+                } catch (\PDOException $e) {
+                    echo "Aviso en " . basename($file) . ": " . $e->getMessage() . "\n";
+                }
+            }
+        }
+    }
+
     echo "Migration completed successfully.\n";
 } catch (\Exception $e) {
     echo "Error: " . $e->getMessage() . "\n";
 }
+

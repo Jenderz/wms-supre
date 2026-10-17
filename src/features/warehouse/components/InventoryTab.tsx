@@ -3,7 +3,8 @@ import { Stock, User, Warehouse, Product, WarehouseSpace, Provider } from '../..
 import {
   Search, Printer, MapPin, Box, ScanLine, Edit2, Check, X,
   Package, Eye, AlertTriangle, ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown, Ruler, Users, Download,
-  Settings2, Layers, Save, Loader2, QrCode, Warehouse as WarehouseIcon
+  Settings2, Layers, Save, Loader2, QrCode, Warehouse as WarehouseIcon,
+  CheckSquare, Square, ListChecks, FileText
 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
@@ -12,6 +13,10 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '.
 import { QRScannerModal } from '../../../components/QRScannerModal';
 import { useLockedAction } from '../../../hooks/useLockedAction';
 import { LockModal } from '../../../components/LockModal';
+import { useSpaceGroups } from '../../infrastructure/hooks/useSpaceGroups';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { format } from 'date-fns';
 
 interface InventoryTabProps {
   stock: Stock[];
@@ -35,8 +40,11 @@ interface InventoryTabProps {
     warehouseSpaceId: string | null;
     quantity: number;
     minStock: number;
+    minStockDispatch?: number;
+    deductFromUnassigned?: boolean;
   }) => Promise<void>;
   initialSpaceFilter?: string;
+  initialWarehouseFilter?: string;
 }
 
 // ── Fila etiqueta + valor para el modal de detalles ────────────────────────────
@@ -75,8 +83,8 @@ const StockBlock: React.FC<{
     <div className="px-3 py-2 bg-white">
       <div className="flex items-center gap-1.5 text-xs text-slate-500">
         <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
-        <span className={spaceName ? 'text-slate-700' : 'text-slate-400 italic'}>
-          {spaceName ?? 'Sin espacio asignado'}
+        <span className={(spaceName && qty > 0) ? 'text-slate-700' : 'text-slate-400 italic'}>
+          {(spaceName && qty > 0) ? spaceName : 'Sin espacio asignado'}
         </span>
       </div>
     </div>
@@ -101,23 +109,26 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
   assignSpace,
   upsertStock,
   initialSpaceFilter = '',
+  initialWarehouseFilter = '',
 }) => {
   const lockEdit   = useLockedAction('INVENTORY', 'EDIT');
   const lockView   = useLockedAction('INVENTORY', 'VIEW');
   const lockDelete = useLockedAction('INVENTORY', 'DELETE');
-  const lockExport = useLockedAction('INVENTORY', 'EXPORT');
 
   const [inventorySearch, setInventorySearch]                 = useState('');
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('');
-  const [inventoryStoreFilter, setInventoryStoreFilter]       = useState('');
-  const [inventorySpaceFilter]                                = useState(initialSpaceFilter);
+  const [inventoryStoreFilter, setInventoryStoreFilter]       = useState(initialWarehouseFilter || '');
+  const [inventorySpaceFilter, setInventorySpaceFilter]       = useState(initialSpaceFilter || '');
+  const [inventoryGroupFilter, setInventoryGroupFilter]       = useState('');
   const [isScannerOpen, setIsScannerOpen]                     = useState(false);
   const [editingMinStock, setEditingMinStock]                 = useState<{ productId: string; warehouseId: string } | null>(null);
   const [minStockValue, setMinStockValue]                     = useState('');
   const [editingStockQty, setEditingStockQty]                 = useState<{ stockId: string; value: string } | null>(null);
   const [detailProduct, setDetailProduct]                     = useState<string | null>(null);
   const [expandedStock, setExpandedStock]                     = useState<Set<string>>(new Set());
-  const [showFilters, setShowFilters]                         = useState(false);
+  const [showFilters, setShowFilters]                         = useState(!!initialSpaceFilter || !!initialWarehouseFilter);
+
+  const { groups: spaceGroups } = useSpaceGroups();
 
   // ── Ordenamiento de la tabla de inventario ────────────────────────────────
   type InventorySortKey = 'name' | 'code' | 'category' | 'subcategory' | 'totalQty' | 'pendingQty' | 'warehouse';
@@ -144,6 +155,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
   const [adminPendingQty, setAdminPendingQty]                 = useState<number>(0);
   const [adminTotalInput, setAdminTotalInput]                 = useState<number>(0);
   const [adminMinStockVal, setAdminMinStockVal]               = useState<string>('0');
+  const [adminMinStockDispatch, setAdminMinStockDispatch]     = useState<string>('0');
   const [adminSlots, setAdminSlots]                           = useState<{ spaceId: string | null; qty: number | string }[]>([
     { spaceId: null, qty: '' },
     { spaceId: null, qty: '' },
@@ -156,13 +168,334 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
   const [isSpacePickerScannerOpen, setIsSpacePickerScannerOpen] = useState(false);
 
   const [spaceEditProduct, setSpaceEditProduct]               = useState<string | null>(null);
-  const [spaceEditQty, setSpaceEditQty]                       = useState<Record<string, string>>({});
-  const [spaceEditSaving, setSpaceEditSaving]                 = useState<string | null>(null);
-  const [spaceEditActiveStockId, setSpaceEditActiveStockId]   = useState<string | null>(null);
+  const [spaceEditSlots, setSpaceEditSlots]                   = useState<{ spaceId: string | null; qty: number | string }[]>([
+    { spaceId: null, qty: '' },
+    { spaceId: null, qty: '' },
+    { spaceId: null, qty: '' },
+    { spaceId: null, qty: '' },
+  ]);
+  const [spaceEditPendingQty, setSpaceEditPendingQty]         = useState<number>(0);
+  const [spaceEditWarehouseId, setSpaceEditWarehouseId]       = useState<string>('');
+  const [activeSlotIndexForSpaceEditPicker, setActiveSlotIndexForSpaceEditPicker] = useState<number | null>(null);
+  const [spaceEditSaving, setSpaceEditSaving]                 = useState<boolean>(false);
   const [spaceEditPickerSearch, setSpaceEditPickerSearch]     = useState('');
   const [isSpaceEditPickerScannerOpen, setIsSpaceEditPickerScannerOpen] = useState(false);
   const [spaceEditTotalOriginal, setSpaceEditTotalOriginal]   = useState<number>(0);
   const [spaceEditError, setSpaceEditError]                   = useState<string | null>(null);
+  const [spaceEditMinStockDispatch, setSpaceEditMinStockDispatch] = useState<string>('0');
+
+  // ── EDICIÓN MÚLTIPLE de stock por lote ──────────────────────────────
+  const [isBulkEditMode, setIsBulkEditMode]                   = useState(false);
+  // key del row: `${productId}::${warehouseId}`
+  const [bulkSelectedRows, setBulkSelectedRows]               = useState<Set<string>>(new Set());
+  const [bulkEditModalOpen, setBulkEditModalOpen]             = useState(false);
+  const [bulkEditWarehouseId, setBulkEditWarehouseId]         = useState('');
+  const [bulkEditSpaceId, setBulkEditSpaceId]                 = useState<string | null>(null);
+  const [bulkEditSpaceSearch, setBulkEditSpaceSearch]         = useState('');
+  // map productId → nueva cantidad como string
+  const [bulkEditQtyMap, setBulkEditQtyMap]                   = useState<Record<string, string>>({});
+  const [bulkEditSaving, setBulkEditSaving]                   = useState(false);
+  const [bulkEditError, setBulkEditError]                     = useState<string | null>(null);
+  const [isBulkEditSpaceScannerOpen, setIsBulkEditSpaceScannerOpen] = useState(false);
+
+  // ── PDF Export ─────────────────────────────────────────────────────────────
+  const [isPdfModalOpen, setIsPdfModalOpen]     = useState(false);
+  const [pdfWarehouseFilter, setPdfWarehouseFilter] = useState('');
+  const [pdfGroupFilter, setPdfGroupFilter]     = useState('');
+  const [pdfSpaceFilter, setPdfSpaceFilter]     = useState('');
+  const [pdfColumns, setPdfColumns] = useState({
+    name: true,
+    category: true,
+    subcategory: true,
+    code: true,
+    totalQty: true,
+    pendingQty: true,
+    warehouse: true,
+    spaces: true,
+  });
+
+  const handleGeneratePDF = () => {
+    const doc  = new jsPDF('landscape');
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+
+    // Paleta de colores
+    const C_NAVY   : [number,number,number] = [15,  23,  42];
+    const C_BLUE   : [number,number,number] = [37,  99, 235];
+    const C_ACCENT : [number,number,number] = [99, 102, 241];
+    const C_WHITE  : [number,number,number] = [255, 255, 255];
+    const C_SLATE5 : [number,number,number] = [100, 116, 139];
+    const C_SLATE2 : [number,number,number] = [226, 232, 240];
+    const C_SLATE0 : [number,number,number] = [248, 250, 252];
+
+    // ─ HEADER BAND ─────────────────────────────────────────────────
+    doc.setFillColor(...C_BLUE);
+    doc.rect(0, 0, pageW, 24, 'F');
+    doc.setFillColor(...C_ACCENT);
+    doc.triangle(pageW - 40, 0, pageW, 0, pageW, 40, 'F');
+    doc.setFillColor(219, 234, 254);
+    doc.rect(0, 24, pageW, 1.2, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.setTextColor(...C_WHITE);
+    doc.text('REPORTE DE INVENTARIO', 14, 15.5);
+
+    // ─ FILTRAR FILAS PARA PDF ───────────────────────────────────────────
+    // Filtrar el inventario completo por los filtros propios del PDF (almacén, grupo, espacio)
+    const pdfTargetGroup = pdfGroupFilter ? spaceGroups.find(g => String(g.id) === pdfGroupFilter) : null;
+
+    const filteredRowsForPDF = inventoryRows
+      // 1) filtrar por almacén del PDF (independiente del filtro de la tabla)
+      .filter(row => !pdfWarehouseFilter || String(row.warehouseId) === String(pdfWarehouseFilter))
+      // 2) filtrar items por espacio o grupo
+      .map(row => {
+        let items = row.items;
+        if (pdfSpaceFilter) {
+          items = items.filter(i => String(i.warehouseSpaceId) === String(pdfSpaceFilter));
+        } else if (pdfTargetGroup) {
+          items = items.filter(i => i.warehouseSpaceId && pdfTargetGroup.spaceIds.includes(Number(i.warehouseSpaceId)));
+        }
+        return { ...row, items };
+      })
+      .filter(row => row.items.length > 0);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(196, 218, 255);
+    doc.text('Sistema de Gestión de Almacenes · WMS', pageW - 14, 10, { align: 'right' });
+    doc.text(format(new Date(), "dd/MM/yyyy, HH:mm"), pageW - 14, 17, { align: 'right' });
+
+    // ─ TARJETAS DE ESTADÍSTICAS ─────────────────────────────────────
+    const statsY      = 32;
+    const totalProds  = new Set(filteredRowsForPDF.map(r => r.productId)).size;
+    const totalUnits  = filteredRowsForPDF.reduce((a, r) => a + r.items.reduce((s, i) => s + Number(i.quantity), 0), 0);
+    const totalPend   = filteredRowsForPDF.reduce((a, r) => a + r.items.filter(i => !i.warehouseSpaceId).reduce((s, i) => s + Number(i.quantity), 0), 0);
+    const spaceName = pdfSpaceFilter
+      ? (warehouseSpaces.find(s => String(s.id) === String(pdfSpaceFilter))?.name ?? 'Espacio')
+      : pdfGroupFilter
+        ? (spaceGroups.find(g => String(g.id) === String(pdfGroupFilter))?.name ?? 'Grupo')
+        : 'Todos';
+    const whName = pdfWarehouseFilter ? (getStore(pdfWarehouseFilter)?.name ?? 'Almacén') : 'Todos';
+
+    const stats = [
+      { label: 'PRODUCTOS',        value: totalProds.toString() },
+      { label: 'UNIDADES TOTALES', value: totalUnits.toString() },
+      { label: 'SIN UBICACIÓN',    value: totalPend.toString()  },
+      { label: 'ESPACIO',          value: spaceName             },
+      { label: 'ALMACÉN',          value: whName                },
+    ];
+    const cardW = (pageW - 28) / stats.length;
+    const cardH = 16;
+    stats.forEach((s, i) => {
+      const x = 14 + i * cardW;
+      doc.setFillColor(...C_SLATE0);
+      doc.roundedRect(x, statsY, cardW - 3, cardH, 2, 2, 'F');
+      doc.setFillColor(...C_BLUE);
+      doc.rect(x, statsY, 2, cardH, 'F');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(...C_SLATE5);
+      doc.text(s.label, x + 5, statsY + 5.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(...C_NAVY);
+      const val = s.value.length > 18 ? s.value.substring(0, 16) + '…' : s.value;
+      doc.text(val, x + 5, statsY + 13);
+    });
+    doc.setDrawColor(...C_SLATE2);
+    doc.setLineWidth(0.3);
+    doc.line(14, statsY + cardH + 4, pageW - 14, statsY + cardH + 4);
+
+    // ─ CABECERA Y CUERPO DE TABLA ───────────────────────────────────
+    const tableStartY = statsY + cardH + 8;
+
+    const colBase: Record<string, number> = {
+      name: 60, category: 32, subcategory: 32, code: 28,
+      totalQty: 20, pendingQty: 20, warehouse: 35, spaces: 55,
+    };
+    const head: string[] = [];
+    const rawWidths: number[] = [];
+    if (pdfColumns.name)        { head.push('Producto');      rawWidths.push(colBase.name); }
+    if (pdfColumns.category)    { head.push('Categoría');     rawWidths.push(colBase.category); }
+    if (pdfColumns.subcategory) { head.push('Sub-Categoría'); rawWidths.push(colBase.subcategory); }
+    if (pdfColumns.code)        { head.push('Código');        rawWidths.push(colBase.code); }
+    if (pdfColumns.totalQty)    { head.push('Stock');         rawWidths.push(colBase.totalQty); }
+    if (pdfColumns.pendingQty)  { head.push('Sin Ubic.');     rawWidths.push(colBase.pendingQty); }
+    if (pdfColumns.warehouse)   { head.push('Almacén');       rawWidths.push(colBase.warehouse); }
+    if (pdfColumns.spaces)      { head.push('Espacios');      rawWidths.push(colBase.spaces); }
+
+    const totalRaw  = rawWidths.reduce((a, v) => a + v, 0);
+    const availW    = pageW - 28;
+    const normW     = rawWidths.map(w => (w / totalRaw) * availW);
+
+    const body = filteredRowsForPDF.map(row => {
+      const p       = getProduct(row.productId);
+      const cat     = getCategory(p?.categoryId || '');
+      const sub     = cat?.subcategories?.find((s: any) => String(s.id) === String(p?.subcategoryId))?.name || '—';
+      const wh      = row.warehouseId ? getStore(row.warehouseId)?.name : '—';
+      const assigned   = row.items.filter(i => i.warehouseSpaceId && Number(i.quantity) > 0);
+      const pendingQty = row.items.filter(i => !i.warehouseSpaceId).reduce((a, c) => a + Number(c.quantity), 0);
+      const totalQty   = row.items.reduce((a, c) => a + Number(c.quantity), 0);
+      const spacesText = assigned.map(i => {
+        const sp = getLocation(i.warehouseSpaceId!);
+        return `${sp?.name || '?'}: ${Number(i.quantity)}`;
+      }).join(' | ') || '—';
+
+      const rd: string[] = [];
+      if (pdfColumns.name)        rd.push(p?.name || '—');
+      if (pdfColumns.category)    rd.push(cat?.name || '—');
+      if (pdfColumns.subcategory) rd.push(sub);
+      if (pdfColumns.code)        rd.push(p?.code || '—');
+      if (pdfColumns.totalQty)    rd.push(totalQty.toString());
+      if (pdfColumns.pendingQty)  rd.push(pendingQty > 0 ? pendingQty.toString() : '—');
+      if (pdfColumns.warehouse)   rd.push(wh || '—');
+      if (pdfColumns.spaces)      rd.push(spacesText);
+      return rd;
+    });
+
+    autoTable(doc, {
+      startY: tableStartY,
+      head: [head],
+      body: body,
+      theme: 'plain',
+      columnStyles: Object.fromEntries(
+        normW.map((w, i) => {
+          const isNum = (pdfColumns.totalQty && head[i] === 'Stock') || (pdfColumns.pendingQty && head[i] === 'Sin Ubic.');
+          return [i, { cellWidth: w, halign: isNum ? 'center' : 'left' }];
+        })
+      ),
+      headStyles: {
+        fillColor: C_NAVY,
+        textColor: C_WHITE,
+        fontStyle: 'bold',
+        fontSize: 8,
+        cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
+        lineWidth: 0,
+      },
+      bodyStyles: {
+        fontSize: 8,
+        cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
+        textColor: C_NAVY,
+        lineColor: C_SLATE2,
+        lineWidth: 0.2,
+      },
+      alternateRowStyles: { fillColor: C_SLATE0 },
+      didDrawPage: (data: any) => {
+        const pages = (doc.internal as any).getNumberOfPages();
+        doc.setFillColor(...C_NAVY);
+        doc.rect(0, pageH - 10, pageW, 10, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(...C_SLATE2);
+        doc.text(`WMS · Reporte de Inventario · ${format(new Date(), "dd/MM/yyyy HH:mm")}`, 14, pageH - 3.5);
+        doc.text(`Página ${data.pageNumber} de ${pages}`, pageW - 14, pageH - 3.5, { align: 'right' });
+      },
+    });
+
+    const fileSpaceName = pdfSpaceFilter
+      ? (warehouseSpaces.find(s => String(s.id) === String(pdfSpaceFilter))?.name?.replace(/\s+/g, '_') ?? 'espacio')
+      : pdfGroupFilter
+        ? (spaceGroups.find(g => String(g.id) === String(pdfGroupFilter))?.name?.replace(/\s+/g, '_') ?? 'grupo')
+        : 'general';
+    doc.save(`Inventario_${fileSpaceName}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    setIsPdfModalOpen(false);
+  };
+
+  const toggleBulkRow = (key: string) => {
+    setBulkSelectedRows(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  const toggleBulkAll = () => {
+    if (bulkSelectedRows.size === inventoryRows.length && inventoryRows.length > 0) {
+      setBulkSelectedRows(new Set());
+    } else {
+      setBulkSelectedRows(new Set(inventoryRows.map(r => `${r.productId}::${r.warehouseId}`)));
+    }
+  };
+
+  const openBulkEditModal = () => {
+    if (bulkSelectedRows.size === 0) return;
+    // Inicializar el mapa de cantidades en '' para cada producto seleccionado
+    const qtyMap: Record<string, string> = {};
+    [...bulkSelectedRows].forEach(key => {
+      const [productId] = key.split('::');
+      qtyMap[productId] = '';
+    });
+    setBulkEditQtyMap(qtyMap);
+    setBulkEditWarehouseId(inventoryStoreFilter || warehouses[0]?.id || '');
+    setBulkEditSpaceId(null);
+    setBulkEditSpaceSearch('');
+    setBulkEditError(null);
+    setBulkEditModalOpen(true);
+  };
+
+  const handleBulkEditSave = async () => {
+    if (!bulkEditSpaceId || !bulkEditWarehouseId) {
+      setBulkEditError('Debes seleccionar un almacén y una ubicación.');
+      return;
+    }
+    setBulkEditSaving(true);
+    setBulkEditError(null);
+    try {
+      await Promise.all(
+        [...bulkSelectedRows].map(rowKey => {
+          const [productId] = rowKey.split('::');
+          const qty = Number(bulkEditQtyMap[productId] ?? 0);
+          // Preservar el minStock actual del producto si ya tiene stock registrado
+          const existingStockItem = stock.find(
+            s => String(s.productId) === productId && String(s.warehouseId) === String(bulkEditWarehouseId)
+          );
+          return upsertStock({
+            productId,
+            warehouseId: bulkEditWarehouseId,
+            warehouseSpaceId: bulkEditSpaceId,
+            quantity: qty,
+            minStock: existingStockItem?.minStock ?? 0,
+            deductFromUnassigned: true,
+          });
+        })
+      );
+
+      // Sincronizar enabledWarehouses en cada producto afectado
+      await Promise.all(
+        [...bulkSelectedRows].map(rowKey => {
+          const [productId] = rowKey.split('::');
+          const p = getProduct(productId);
+          if (!p) return Promise.resolve();
+          const currentEnabled = (p.enabledWarehouses ?? []).map(String);
+          if (!currentEnabled.includes(String(bulkEditWarehouseId))) {
+            return updateProduct(productId, {
+              ...p,
+              enabledWarehouses: [...currentEnabled, String(bulkEditWarehouseId)],
+            });
+          }
+          return Promise.resolve();
+        })
+      );
+
+      setBulkEditModalOpen(false);
+      setBulkSelectedRows(new Set());
+      setIsBulkEditMode(false);
+    } catch (err: any) {
+      setBulkEditError(err?.message ?? 'Error al guardar');
+    } finally {
+      setBulkEditSaving(false);
+    }
+  };
+
+  // Espacios del almacén seleccionado en el modal bulk (filtrados por búsqueda)
+  const bulkEditAvailableSpaces = warehouseSpaces.filter(sp => {
+    const matchesWh = String(sp.warehouseId) === String(bulkEditWarehouseId);
+    const matchesSrch = sp.name.toLowerCase().includes(bulkEditSpaceSearch.toLowerCase()) ||
+                        sp.qrCode.toLowerCase().includes(bulkEditSpaceSearch.toLowerCase()) ||
+                        (sp.spaceTypeName || '').toLowerCase().includes(bulkEditSpaceSearch.toLowerCase());
+    return matchesWh && matchesSrch;
+  });
 
   const canEditMinStock = user?.role === 'ADMIN' || user?.permissions?.includes('EDIT_MIN_STOCK');
 
@@ -191,7 +524,14 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
     const matchesStore    = inventoryStoreFilter === '' || (stockGrouped[productId]?.some(s => String(s.warehouseId) === String(inventoryStoreFilter)) ?? false);
     // Si hay filtro por espacio, solo incluir productos que tienen stock en ese espacio
     const matchesSpace    = inventorySpaceFilter === '' || (stockGrouped[productId]?.some(s => String(s.warehouseSpaceId) === String(inventorySpaceFilter)) ?? false);
-    return matchesSearch && matchesCategory && matchesStore && matchesSpace;
+    // Si hay filtro por grupo, solo incluir productos con stock en espacios pertenecientes al grupo
+    const matchesGroup = inventoryGroupFilter === '' || (() => {
+      const targetGroup = spaceGroups.find(g => String(g.id) === inventoryGroupFilter);
+      if (!targetGroup) return false;
+      return stockGrouped[productId]?.some(s => s.warehouseSpaceId && targetGroup.spaceIds.includes(Number(s.warehouseSpaceId))) ?? false;
+    })();
+
+    return matchesSearch && matchesCategory && matchesStore && matchesSpace && matchesGroup;
   });
 
   const uniqueCategories = Array.from(
@@ -286,9 +626,11 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
   // Cantidad de productos únicos (para el header)
   const uniqueProductCount = new Set(inventoryRows.map(r => r.productId)).size;
 
-  const activeFiltersCount = [inventoryCategoryFilter, inventoryStoreFilter].filter(Boolean).length;
+  const activeFiltersCount = [inventoryCategoryFilter, inventoryStoreFilter, inventoryGroupFilter, inventorySpaceFilter].filter(Boolean).length;
 
+  const selectedAdminSpaceIds = new Set(adminSlots.map(s => s.spaceId).filter(Boolean));
   const pickerFilteredSpaces = warehouseSpaces.filter(space => {
+    if (selectedAdminSpaceIds.has(space.id)) return false;
     const matchesWarehouse = String(space.warehouseId) === String(adminSelectedWarehouseId);
     const matchesSearch = space.name.toLowerCase().includes(spacePickerSearch.toLowerCase()) ||
                           space.qrCode.toLowerCase().includes(spacePickerSearch.toLowerCase()) ||
@@ -296,11 +638,10 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
     return matchesWarehouse && matchesSearch;
   });
 
-  const spaceEditOriginalItem = spaceEditActiveStockId ? stock.find(s => String(s.id) === String(spaceEditActiveStockId)) : null;
-  const spaceEditSelectedWarehouseId = spaceEditOriginalItem ? spaceEditOriginalItem.warehouseId : '';
-
+  const selectedSpaceEditSpaceIds = new Set(spaceEditSlots.map(s => s.spaceId).filter(Boolean));
   const spaceEditPickerFilteredSpaces = warehouseSpaces.filter(space => {
-    const matchesWarehouse = String(space.warehouseId) === String(spaceEditSelectedWarehouseId);
+    if (selectedSpaceEditSpaceIds.has(space.id)) return false;
+    const matchesWarehouse = String(space.warehouseId) === String(spaceEditWarehouseId);
     const matchesSearch = space.name.toLowerCase().includes(spaceEditPickerSearch.toLowerCase()) ||
                           space.qrCode.toLowerCase().includes(spaceEditPickerSearch.toLowerCase()) ||
                           (space.spaceTypeName || '').toLowerCase().includes(spaceEditPickerSearch.toLowerCase());
@@ -337,14 +678,32 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
 
     // Min stock
     const minSt = whStock.reduce((a, c) => Math.max(a, c.minStock), 0);
+    const minStDispatch = whStock.reduce((a, c) => Math.max(a, Number(c.minStockDispatch ?? 0)), 0);
 
-    // Slots (only show spaces with quantity > 0 to avoid empty references hanging on screen)
-    const spaceItems = whStock.filter(s => s.warehouseSpaceId && Number(s.quantity) > 0);
+    // 1. Espacio de Despachos fijo (incluso con quantity = 0)
+    const dispatchStock = whStock.find(s => {
+      if (!s.warehouseSpaceId) return false;
+      const sp = getLocation(s.warehouseSpaceId);
+      return sp?.spaceUsageType === 'Despachos';
+    });
+
+    // 2. Espacios de Almacenamiento con quantity > 0
+    const storageStocks = whStock.filter(s => {
+      if (!s.warehouseSpaceId || Number(s.quantity) <= 0) return false;
+      const sp = getLocation(s.warehouseSpaceId);
+      return sp?.spaceUsageType !== 'Despachos';
+    });
+
+    // Combinar: Despachos primero (máx 1), luego Almacenamiento
+    const spaceItems = dispatchStock
+      ? [dispatchStock, ...storageStocks]
+      : storageStocks;
+
     const slots = [0, 1, 2, 3].map(i => {
       const item = spaceItems[i];
       return {
         spaceId: item?.warehouseSpaceId || null,
-        qty: item ? Number(item.quantity) : '',
+        qty: item ? (Number(item.quantity) === 0 ? 0 : Number(item.quantity)) : '',
       };
     });
 
@@ -356,6 +715,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
     setAdminPendingQty(pendingQty);
     setAdminTotalInput(totalQty);
     setAdminMinStockVal(String(minSt));
+    setAdminMinStockDispatch(String(minStDispatch));
     setAdminSlots(slots);
     setAdminOriginalStock(whStock);
     setActiveSlotIndexForSpacePicker(null);
@@ -396,14 +756,32 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
 
     // Min stock
     const minSt = whStock.reduce((a, c) => Math.max(a, c.minStock), 0);
+    const minStDispatch = whStock.reduce((a, c) => Math.max(a, Number(c.minStockDispatch ?? 0)), 0);
 
-    // 4 Slots (only show spaces with quantity > 0)
-    const spaceItems = whStock.filter(s => s.warehouseSpaceId && Number(s.quantity) > 0);
+    // 1. Espacio de Despachos fijo (incluso con quantity = 0)
+    const dispatchStock = whStock.find(s => {
+      if (!s.warehouseSpaceId) return false;
+      const sp = getLocation(s.warehouseSpaceId);
+      return sp?.spaceUsageType === 'Despachos';
+    });
+
+    // 2. Espacios de Almacenamiento con quantity > 0
+    const storageStocks = whStock.filter(s => {
+      if (!s.warehouseSpaceId || Number(s.quantity) <= 0) return false;
+      const sp = getLocation(s.warehouseSpaceId);
+      return sp?.spaceUsageType !== 'Despachos';
+    });
+
+    // Combinar: Despachos primero (máx 1), luego Almacenamiento
+    const spaceItems = dispatchStock
+      ? [dispatchStock, ...storageStocks]
+      : storageStocks;
+
     const slots = [0, 1, 2, 3].map(i => {
       const item = spaceItems[i];
       return {
         spaceId: item?.warehouseSpaceId || null,
-        qty: item ? Number(item.quantity) : '',
+        qty: item ? (Number(item.quantity) === 0 ? 0 : Number(item.quantity)) : '',
       };
     });
 
@@ -414,6 +792,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
     setAdminPendingQty(pendingQty);
     setAdminTotalInput(totalQty);
     setAdminMinStockVal(String(minSt));
+    setAdminMinStockDispatch(String(minStDispatch));
     setAdminSlots(slots);
     setAdminOriginalStock(whStock);
     setActiveSlotIndexForSpacePicker(null);
@@ -468,6 +847,8 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
       // Execute stock updates
       const updatePromises: Promise<any>[] = [];
 
+      const minStockDispatch = Number(adminMinStockDispatch || 0);
+
       newStockMap.forEach((qty, spaceId) => {
         updatePromises.push(
           upsertStock({
@@ -476,6 +857,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
             warehouseSpaceId: spaceId,
             quantity: qty,
             minStock: minStock,
+            minStockDispatch: minStockDispatch,
           })
         );
       });
@@ -488,12 +870,20 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
             warehouseSpaceId: spaceId,
             quantity: 0,
             minStock: minStock,
+            minStockDispatch: minStockDispatch,
           })
         );
       });
 
       // Wait for all upserts to finish
       await Promise.all(updatePromises);
+
+      // Sincronizar enabledWarehouses: asegurarse de que el almacén donde
+      // se guardó el stock quede registrado en el producto.
+      const currentEnabled = (p?.enabledWarehouses ?? []).map(String);
+      const syncedWarehouses = currentEnabled.includes(String(adminSelectedWarehouseId))
+        ? currentEnabled
+        : [...currentEnabled, String(adminSelectedWarehouseId)];
 
       // Save product and reload data via hook
       await updateProduct(adminEditProduct, {
@@ -510,7 +900,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
         costs,
         prices,
         providers:        providersList,
-        enabledWarehouses: p?.enabledWarehouses ?? [],
+        enabledWarehouses: syncedWarehouses,
         footerUrl:        p?.footerUrl ?? '',
       });
 
@@ -522,9 +912,22 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
     }
   };
 
-  // Asignar un espacio a un item de stock desde el picker
+  // Asignar un espacio a un item de stock desde el picker (Admin Edit)
   const handlePickSpace = (spaceId: string) => {
     if (activeSlotIndexForSpacePicker === null) return;
+    setAdminEditError(null);
+    const pickedSpace = getLocation(spaceId);
+    if (pickedSpace?.spaceUsageType === 'Despachos') {
+      const alreadyHasDespachos = adminSlots.some((slot, idx) => {
+        if (idx === activeSlotIndexForSpacePicker || !slot.spaceId) return false;
+        const s = getLocation(slot.spaceId);
+        return s?.spaceUsageType === 'Despachos';
+      });
+      if (alreadyHasDespachos) {
+        setAdminEditError('Un producto solo puede tener asignado como máximo 1 espacio del tipo "Despachos".');
+        return;
+      }
+    }
     setAdminSlots(prev => {
       const next = [...prev];
       next[activeSlotIndexForSpacePicker] = {
@@ -537,113 +940,160 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
     setSpacePickerSearch('');
   };
 
-  // ── Handlers modal Editar Espacios ────────────────────────────────────────────
-  const openSpaceEdit = (productId: string) => {
-    const items = groupedInventory[productId] ?? [];
-    const initial: Record<string, string> = {};
-    const total = items.reduce((a, c) => a + Number(c.quantity), 0);
-    items.forEach(item => { initial[item.id] = String(item.quantity); });
-    setSpaceEditQty(initial);
-    setSpaceEditTotalOriginal(total);
+  const handleSpaceEditPickSpace = (spaceId: string) => {
+    if (activeSlotIndexForSpaceEditPicker === null) return;
     setSpaceEditError(null);
-    setSpaceEditProduct(productId);
-    setSpaceEditActiveStockId(null);
+    const pickedSpace = getLocation(spaceId);
+    if (pickedSpace?.spaceUsageType === 'Despachos') {
+      const alreadyHasDespachos = spaceEditSlots.some((slot, idx) => {
+        if (idx === activeSlotIndexForSpaceEditPicker || !slot.spaceId) return false;
+        const s = getLocation(slot.spaceId);
+        return s?.spaceUsageType === 'Despachos';
+      });
+      if (alreadyHasDespachos) {
+        setSpaceEditError('Un producto solo puede tener asignado como máximo 1 espacio del tipo "Despachos".');
+        return;
+      }
+    }
+    setSpaceEditSlots(prev => {
+      const next = [...prev];
+      next[activeSlotIndexForSpaceEditPicker] = {
+        ...next[activeSlotIndexForSpaceEditPicker],
+        spaceId: spaceId,
+      };
+      return next;
+    });
+    setActiveSlotIndexForSpaceEditPicker(null);
     setSpaceEditPickerSearch('');
   };
 
-  const handleSaveSpaceQty = async (stockId: string) => {
-    const val = parseFloat(spaceEditQty[stockId] ?? '');
-    if (isNaN(val) || val < 0) return;
+  // ── Handlers modal Editar Espacios ────────────────────────────────────────────
+  const openSpaceEdit = (productId: string, warehouseId: string) => {
+    const whStock = stock.filter(s => String(s.productId) === String(productId) && String(s.warehouseId) === String(warehouseId));
+    
+    const pendingItem = whStock.find(s => !s.warehouseSpaceId);
+    const pendingQty = pendingItem ? Number(pendingItem.quantity) : 0;
 
-    // Calcular la suma total si se aplica este cambio
-    const items = spaceEditProduct ? (groupedInventory[spaceEditProduct] ?? []) : [];
-    const newTotal = items.reduce((sum, item) => {
-      const qty = item.id === stockId ? val : parseFloat(spaceEditQty[item.id] ?? String(item.quantity));
-      return sum + (isNaN(qty) ? Number(item.quantity) : qty);
-    }, 0);
+    // 1. Espacio de Despachos fijo (incluso con quantity = 0)
+    const dispatchStock = whStock.find(s => {
+      if (!s.warehouseSpaceId) return false;
+      const sp = getLocation(s.warehouseSpaceId);
+      return sp?.spaceUsageType === 'Despachos';
+    });
+
+    // 2. Espacios de Almacenamiento con quantity > 0
+    const storageStocks = whStock.filter(s => {
+      if (!s.warehouseSpaceId || Number(s.quantity) <= 0) return false;
+      const sp = getLocation(s.warehouseSpaceId);
+      return sp?.spaceUsageType !== 'Despachos';
+    });
+
+    // Combinar: Despachos primero (máx 1), luego Almacenamiento
+    const spaceItems = dispatchStock
+      ? [dispatchStock, ...storageStocks]
+      : storageStocks;
+
+    const slots = [0, 1, 2, 3].map(i => {
+      const item = spaceItems[i];
+      return {
+        spaceId: item?.warehouseSpaceId || null,
+        qty: item ? (Number(item.quantity) === 0 ? 0 : Number(item.quantity)) : '',
+      };
+    });
+
+    const assignedQty = spaceItems.reduce((a, c) => a + Number(c.quantity), 0);
+    const totalQty = pendingQty + assignedQty;
+
+    // Leer el valor actual de minStockDispatch del stock del almacén
+    const currentMinStockDispatch = whStock.reduce((a, c) => Math.max(a, Number(c.minStockDispatch ?? 0)), 0);
+
+    setSpaceEditSlots(slots);
+    setSpaceEditPendingQty(pendingQty);
+    setSpaceEditWarehouseId(warehouseId);
+    setSpaceEditTotalOriginal(totalQty);
+    setSpaceEditMinStockDispatch(String(currentMinStockDispatch));
+    
+    setSpaceEditError(null);
+    setSpaceEditProduct(productId);
+    setActiveSlotIndexForSpaceEditPicker(null);
+    setSpaceEditPickerSearch('');
+  };
+
+  const handleSaveSpaceEdits = async () => {
+    if (!spaceEditProduct || !spaceEditWarehouseId) return;
+
+    const slotsTotal = spaceEditSlots.reduce((a, c) => a + (Number(c.qty) || 0), 0);
+    const newTotal = spaceEditPendingQty + slotsTotal;
 
     if (Math.round(newTotal * 10000) !== Math.round(spaceEditTotalOriginal * 10000)) {
       setSpaceEditError(
-        `La cantidad total debe ser siempre ${spaceEditTotalOriginal} unidades (ingresadas desde administrador). ` +
-        `Con este cambio el total quedaría en ${newTotal}. Ajusta las cantidades para que sumen exactamente ${spaceEditTotalOriginal}.`
+        `La cantidad total debe ser siempre ${spaceEditTotalOriginal} unidades. ` +
+        `Actualmente la suma es ${newTotal}. Ajusta las cantidades para que sumen exactamente ${spaceEditTotalOriginal}.`
       );
       return;
     }
 
     setSpaceEditError(null);
-    setSpaceEditSaving(stockId);
+    setSpaceEditSaving(true);
+    
     try {
-      await updateStockQuantity(stockId, val);
+      const whStock = stock.filter(s => String(s.productId) === String(spaceEditProduct) && String(s.warehouseId) === String(spaceEditWarehouseId));
+      const minStock = whStock.reduce((a, c) => Math.max(a, c.minStock), 0);
+
+      const newStockMap = new Map<string | null, number>();
+      newStockMap.set(null, spaceEditPendingQty);
+
+      spaceEditSlots.forEach(slot => {
+        const qtyNum = Number(slot.qty) || 0;
+        if (slot.spaceId && qtyNum >= 0) {
+          const existing = newStockMap.get(slot.spaceId) ?? 0;
+          newStockMap.set(slot.spaceId, Math.max(existing, qtyNum));
+        }
+      });
+
+      const spacesToZero = new Set<string | null>();
+      whStock.forEach(orig => {
+        const spaceKey = orig.warehouseSpaceId || null;
+        if (!newStockMap.has(spaceKey)) {
+          spacesToZero.add(spaceKey);
+        }
+      });
+
+      const updatePromises: Promise<any>[] = [];
+
+      newStockMap.forEach((qty, spaceId) => {
+        updatePromises.push(
+          upsertStock({
+            productId: spaceEditProduct,
+            warehouseId: spaceEditWarehouseId,
+            warehouseSpaceId: spaceId,
+            quantity: qty,
+            minStock: minStock,
+            minStockDispatch: Number(spaceEditMinStockDispatch),
+          })
+        );
+      });
+
+      spacesToZero.forEach(spaceId => {
+        updatePromises.push(
+          upsertStock({
+            productId: spaceEditProduct,
+            warehouseId: spaceEditWarehouseId,
+            warehouseSpaceId: spaceId,
+            quantity: 0,
+            minStock: minStock,
+            minStockDispatch: Number(spaceEditMinStockDispatch),
+          })
+        );
+      });
+
+      await Promise.all(updatePromises);
+      setSpaceEditProduct(null);
+    } catch (err: any) {
+      setSpaceEditError(err?.message ?? 'Error al guardar');
     } finally {
-      setSpaceEditSaving(null);
+      setSpaceEditSaving(false);
     }
-  };
-
-  const handleSpaceEditPickSpace = async (spaceId: string) => {
-    if (!spaceEditActiveStockId) return;
-    setSpaceEditSaving(spaceEditActiveStockId);
-    try {
-      await assignSpace(spaceEditActiveStockId, spaceId);
-    } finally {
-      setSpaceEditSaving(null);
-      setSpaceEditActiveStockId(null);
-      setSpaceEditPickerSearch('');
-    }
-  };
-
-  // ── Exportar a CSV ───────────────────────────────────────────────────────────
-  const handleExport = () => {
-    const data = inventoryRows.map(({ productId, warehouseId, items }) => {
-      const product = getProduct(productId);
-      const category = product ? getCategory(product.categoryId) : null;
-      const subcategoryName = product?.subcategoryId && category?.subcategories
-        ? category.subcategories.find((s: any) => String(s.id) === String(product.subcategoryId))?.name ?? ''
-        : '';
-      const warehouse = warehouseId ? getStore(warehouseId) : null;
-
-      const totalQty = items.reduce((sum, item) => sum + Number(item.quantity), 0);
-      const minStock = items.reduce((max, item) => Math.max(max, item.minStock), 0);
-
-      const assigned = items.filter(i => i.warehouseSpaceId);
-      const pending  = items.filter(i => !i.warehouseSpaceId && Number(i.quantity) > 0);
-
-      const spacesText = assigned.map(item => {
-        const space = item.warehouseSpaceId ? getLocation(item.warehouseSpaceId) : null;
-        return `${space?.name ?? 'Espacio'}: ${item.quantity}`;
-      }).concat(pending.map(item => `Sin asignar: ${item.quantity}`)).join(' | ');
-
-      return {
-        'Producto': product?.name ?? '—',
-        'Categoría': category?.name ?? 'Sin Categoría',
-        'Sub-Categoría': subcategoryName ?? '—',
-        'Código': product?.code ?? '—',
-        'Almacén': warehouse?.name ?? 'Sin stock',
-        'Distribución de Stock': spacesText || 'Sin existencias',
-        'Stock Total': totalQty,
-        'Stock Mínimo': minStock,
-      };
-    });
-
-    const csvHeaders = ['Producto', 'Categoría', 'Sub-Categoría', 'Código', 'Almacén', 'Distribución de Stock', 'Stock Total', 'Stock Mínimo'];
-    const csvRows = data.map(row =>
-      csvHeaders.map(header => {
-        const val = row[header as keyof typeof row];
-        const escaped = String(val).replace(/"/g, '""');
-        return `"${escaped}"`;
-      }).join(',')
-    );
-
-    const csvContent = [csvHeaders.join(','), ...csvRows].join('\r\n');
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const fecha = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `inventario_${fecha}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 500);
   };
 
   const renderMinStockCell = (productId: string, warehouseId: string, minStock: number, isLowStock: boolean) => {
@@ -665,7 +1115,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
         <span className={`font-mono text-sm ${isLowStock ? 'text-red-600 font-bold' : 'text-slate-500'}`}>{minStock}</span>
         {canEditMinStock && (
           <button onClick={() => { setEditingMinStock({ productId, warehouseId }); setMinStockValue(minStock.toString()); }}
-            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover/minstock:opacity-100 transition-opacity" title="Editar Stock Mínimo"
+            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover/minstock:opacity-100 transition-opacity" title="Editar Stock mínimo general"
           ><Edit2 className="w-3.5 h-3.5" /></button>
         )}
       </div>
@@ -681,7 +1131,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
   const detailLow         = detailTotal <= detailMinSt && detailMinSt > 0;
   const detailWarehouseId = detailItems[0]?.warehouseId ?? '';
   const detailWarehouse   = detailWarehouseId ? getStore(detailWarehouseId) : null;
-  const assignedItems     = detailItems.filter(i => i.warehouseSpaceId);
+  const assignedItems     = detailItems.filter(i => i.warehouseSpaceId && Number(i.quantity) > 0);
   const pendingItems      = detailItems.filter(i => !i.warehouseSpaceId && Number(i.quantity) > 0);
   const dims              = detailProd?.dimensions ?? { height: 0, width: 0, depth: 0 };
   const cbm               = dims.height && dims.width && dims.depth ? ((dims.height * dims.width * dims.depth) / 1000000).toFixed(4) : '0.0000';
@@ -704,10 +1154,32 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
             {inventoryRows.reduce((a, r) => a + r.items.reduce((s, c) => s + Number(c.quantity), 0), 0)} unidades en stock.
           </p>
         </div>
-        <Button variant="secondary" onClick={() => lockExport.execute(handleExport)} className="gap-2 no-print w-full sm:w-auto">
-          <Download className="w-5 h-5" />
-          Exportar
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setPdfWarehouseFilter(inventoryStoreFilter);
+              setPdfGroupFilter(inventoryGroupFilter);
+              setPdfSpaceFilter(inventorySpaceFilter);
+              setIsPdfModalOpen(true);
+            }}
+            className="gap-2 no-print w-full sm:w-auto"
+          >
+            <FileText className="w-5 h-5" />
+            PDF
+          </Button>
+          <Button
+            variant={isBulkEditMode ? 'primary' : 'secondary'}
+            onClick={() => {
+              setIsBulkEditMode(v => !v);
+              setBulkSelectedRows(new Set());
+            }}
+            className="gap-2 no-print w-full sm:w-auto"
+          >
+            <ListChecks className="w-5 h-5" />
+            {isBulkEditMode ? 'Cancelar selección' : 'EDICIÓN MÚLTIPLE'}
+          </Button>
+        </div>
       </header>
 
       {/* ── Tabla + filtros (mismo patrón que CatalogPage) ───────────────────────── */}
@@ -754,13 +1226,16 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
         {/* Panel de filtros (colapsable) */}
         {showFilters && (
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl mb-6 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {/* Filtro Almacén */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Almacén</label>
                 <select
                   value={inventoryStoreFilter}
-                  onChange={e => setInventoryStoreFilter(e.target.value)}
+                  onChange={e => {
+                    setInventoryStoreFilter(e.target.value);
+                    setInventoryGroupFilter(''); // Limpiar el filtro de grupo si cambia el almacén
+                  }}
                   className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 >
                   <option value="">Todos los almacenes</option>
@@ -784,12 +1259,53 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                   ))}
                 </select>
               </div>
+
+              {/* Filtro Grupo de Espacio */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Grupo de Espacio</label>
+                <select
+                  value={inventoryGroupFilter}
+                  onChange={e => {
+                    setInventoryGroupFilter(e.target.value);
+                    setInventorySpaceFilter(''); // Limpiar espacio si se cambia grupo
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  disabled={!inventoryStoreFilter}
+                  title={!inventoryStoreFilter ? 'Selecciona un almacén primero' : ''}
+                >
+                  <option value="">Todos los grupos</option>
+                  {spaceGroups
+                    .filter(g => String(g.warehouseId) === inventoryStoreFilter)
+                    .map(g => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Filtro Espacio Individual */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Espacio</label>
+                <select
+                  value={inventorySpaceFilter}
+                  onChange={e => setInventorySpaceFilter(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  disabled={!inventoryStoreFilter}
+                  title={!inventoryStoreFilter ? 'Selecciona un almacén primero' : ''}
+                >
+                  <option value="">Todos los espacios</option>
+                  {warehouseSpaces
+                    .filter(s => String(s.warehouseId) === inventoryStoreFilter)
+                    .map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+              </div>
             </div>
 
             {activeFiltersCount > 0 && (
               <div className="flex justify-end pt-1">
                 <button
-                  onClick={() => { setInventoryCategoryFilter(''); setInventoryStoreFilter(''); }}
+                  onClick={() => { setInventoryCategoryFilter(''); setInventoryStoreFilter(''); setInventoryGroupFilter(''); setInventorySpaceFilter(''); }}
                   className="text-xs text-slate-500 hover:text-red-600 transition-colors underline underline-offset-2"
                 >
                   Limpiar filtros
@@ -805,6 +1321,20 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
             <Table>
               <TableHeader>
                 <TableRow>
+                  {/* Columna checkbox (solo en modo edición múltiple) */}
+                  {isBulkEditMode && (
+                    <TableHead className="w-10 pr-0">
+                      <button
+                        onClick={toggleBulkAll}
+                        className="text-slate-400 hover:text-blue-600 transition-colors"
+                        title={bulkSelectedRows.size === inventoryRows.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+                      >
+                        {bulkSelectedRows.size === inventoryRows.length && inventoryRows.length > 0
+                          ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                          : <Square className="w-4 h-4" />}
+                      </button>
+                    </TableHead>
+                  )}
                   {([
                     { key: 'name',        label: 'Producto',      align: 'left',   sortable: true  },
                     { key: 'category',    label: 'Categoría',     align: 'left',   sortable: true  },
@@ -846,19 +1376,47 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                     ? category.subcategories.find((s: any) => String(s.id) === String(subcatId))?.name
                     : null;
                   const warehouse = warehouseId ? getStore(warehouseId) : null;
-                  const assigned  = items.filter(i => i.warehouseSpaceId);
+                  const assigned  = items.filter(i => i.warehouseSpaceId && (Number(i.quantity) > 0 || getLocation(i.warehouseSpaceId)?.spaceUsageType === 'Despachos'));
                   const pending   = items.filter(i => !i.warehouseSpaceId && Number(i.quantity) > 0);
                   const totalQty  = items.reduce((a, c) => a + Number(c.quantity), 0);
                   const minStock  = items.reduce((a, c) => Math.max(a, c.minStock), 0);
                   const hasStock  = items.length > 0;
                   const isLow     = hasStock && totalQty <= minStock && minStock > 0;
                   const isZero    = totalQty === 0;
+
+                  // ── Alerta Stock mínimo espacio despachos ─────────────────────
+                  const dispatchSpaceIds = new Set(
+                    warehouseSpaces
+                      .filter(s => s.spaceUsageType === 'Despachos' && String(s.warehouseId) === String(warehouseId))
+                      .map(s => String(s.id))
+                  );
+                  const dispatchQty      = items
+                    .filter(i => i.warehouseSpaceId && dispatchSpaceIds.has(String(i.warehouseSpaceId)))
+                    .reduce((a, c) => a + Number(c.quantity), 0);
+                  const minStockDispatch = items.reduce((a, c) => Math.max(a, Number(c.minStockDispatch ?? 0)), 0);
+                  const isLowDispatch    = dispatchSpaceIds.size > 0 && minStockDispatch > 0 && dispatchQty <= minStockDispatch;
+                  // ───────────────────────────────────────────────────────────────
+
                   const isExp     = expandedStock.has(`${productId}_${warehouseId}`);
                   // Clave única por producto+almacén para el acordeón
                   const rowKey    = `${productId}_${warehouseId}_${rowIdx}`;
 
                   return (
-                    <TableRow key={rowKey} className={isLow ? 'border-l-4 border-l-red-400' : isZero ? 'border-l-4 border-l-slate-300 opacity-75' : ''}>
+                    <TableRow key={rowKey} className={isLow ? 'border-l-4 border-l-red-400' : isLowDispatch ? 'border-l-4 border-l-orange-400' : isZero ? 'border-l-4 border-l-slate-300 opacity-75' : ''}>
+
+                      {/* Checkbox bulk (solo en modo edición múltiple) */}
+                      {isBulkEditMode && (
+                        <TableCell className="pr-0 w-10">
+                          <button
+                            onClick={() => toggleBulkRow(`${productId}::${warehouseId}`)}
+                            className="text-slate-400 hover:text-blue-600 transition-colors"
+                          >
+                            {bulkSelectedRows.has(`${productId}::${warehouseId}`)
+                              ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                              : <Square className="w-4 h-4" />}
+                          </button>
+                        </TableCell>
+                      )}
 
                       {/* Producto */}
                       <TableCell>
@@ -874,6 +1432,11 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                             {isLow && (
                               <span className="inline-flex items-center gap-1 text-[10px] text-red-500 font-medium mt-0.5">
                                 <AlertTriangle className="w-3 h-3" /> Stock bajo
+                              </span>
+                            )}
+                            {isLowDispatch && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-orange-500 font-medium mt-0.5">
+                                <AlertTriangle className="w-3 h-3" /> Stock despacho bajo
                               </span>
                             )}
                             {isZero && !isLow && (
@@ -970,17 +1533,8 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                                       </button>
                                     </div>
                                   ) : (
-                                    <div className="flex items-center gap-1.5 flex-shrink-0 group/qty">
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
                                       <span className="font-bold text-slate-800">{Number(item.quantity)}</span>
-                                      {canEditMinStock && (
-                                        <button
-                                          onClick={() => setEditingStockQty({ stockId: item.id, value: item.quantity.toString() })}
-                                          className="p-0.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover/qty:opacity-100 transition-opacity"
-                                          title="Editar Stock"
-                                        >
-                                          <Edit2 className="w-3 h-3" />
-                                        </button>
-                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -1013,17 +1567,8 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                                       </button>
                                     </div>
                                   ) : (
-                                    <div className="flex items-center gap-1.5 flex-shrink-0 group/qty">
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
                                       <span className="font-bold text-amber-700">{Number(item.quantity)}</span>
-                                      {canEditMinStock && (
-                                        <button
-                                          onClick={() => setEditingStockQty({ stockId: item.id, value: item.quantity.toString() })}
-                                          className="p-0.5 text-amber-500 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover/qty:opacity-100 transition-opacity"
-                                          title="Editar Stock"
-                                        >
-                                          <Edit2 className="w-3 h-3" />
-                                        </button>
-                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -1089,7 +1634,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                           {/* Editar Espacios */}
                           <button
                             id={`inventory-space-edit-${productId}-${warehouseId}`}
-                            onClick={() => lockEdit.execute(() => openSpaceEdit(productId))}
+                            onClick={() => lockEdit.execute(() => openSpaceEdit(productId, warehouseId))}
                             className={`p-2 rounded-lg transition-all ${
                               isZero
                                 ? 'text-slate-200 cursor-not-allowed'
@@ -1186,17 +1731,19 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
               <div className="mb-6">
                 <h3 className="text-sm font-semibold text-slate-700 mb-3">Espacios de Almacén</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
-                  {assignedItems.map((item, idx) => {
-                    const space = item.warehouseSpaceId ? getLocation(item.warehouseSpaceId) : null;
-                    return (
-                      <StockBlock
-                        key={item.id}
-                        index={idx + 1}
-                        spaceName={space?.name ?? null}
-                        qty={Number(item.quantity)}
-                      />
-                    );
-                  })}
+                  {assignedItems
+                    .filter(item => Number(item.quantity) > 0)
+                    .map((item, idx) => {
+                      const space = item.warehouseSpaceId ? getLocation(item.warehouseSpaceId) : null;
+                      return (
+                        <StockBlock
+                          key={item.id}
+                          index={idx + 1}
+                          spaceName={space?.name ?? null}
+                          qty={Number(item.quantity)}
+                        />
+                      );
+                    })}
                   {pendingItems.map(item => (
                     <StockBlock
                       key={item.id}
@@ -1223,7 +1770,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
               <div className={`flex items-stretch border rounded-xl overflow-hidden ${detailLow ? 'border-red-200' : 'border-slate-200'}`}>
                 <div className={`px-4 py-3 text-xs font-medium flex items-center gap-1 border-r min-w-[110px] ${detailLow ? 'bg-red-50 text-red-600 border-red-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
                   {detailLow && <AlertTriangle className="w-3.5 h-3.5" />}
-                  Stock Mínimo
+                  Stock mínimo general
                 </div>
                 <div className="flex-1 px-4 py-3 flex items-center gap-3">
                   <span className={`text-2xl font-bold ${detailLow ? 'text-red-600' : 'text-slate-700'}`}>{detailMinSt}</span>
@@ -1506,10 +2053,10 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                         </div>
                       </div>
 
-                      {/* Stock Mínimo */}
+                      {/* Stock Mínimo General */}
                       <div className="flex items-stretch border border-red-200 rounded-xl overflow-hidden">
                         <div className="bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 flex items-center border-r border-red-200 flex-1">
-                          Stock Mínimo
+                          Stock mínimo general
                         </div>
                         <input
                           type="number"
@@ -1519,6 +2066,21 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                           className="w-20 px-2 py-2 text-center text-sm font-mono font-bold text-red-700 bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500/40"
                         />
                       </div>
+                    </div>
+
+                    {/* Stock Mínimo Espacio Despachos */}
+                    <div className="flex items-stretch border border-orange-200 rounded-xl overflow-hidden">
+                      <div className="flex items-center gap-1.5 bg-orange-50 px-3 py-2 border-r border-orange-200 flex-1">
+                        <MapPin className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" />
+                        <span className="text-xs font-semibold text-orange-700">Stock mínimo espacio despachos</span>
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        value={adminMinStockDispatch}
+                        onChange={e => setAdminMinStockDispatch(e.target.value)}
+                        className="w-20 px-2 py-2 text-center text-sm font-mono font-bold text-orange-700 bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                      />
                     </div>
 
                     {/* Indicador visual cuando se están asignando slots */}
@@ -1538,7 +2100,16 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                       return (
                         <div key={index} className={`p-3 border rounded-xl flex items-center gap-3 bg-slate-50 transition-all ${isActiveForPick ? 'ring-2 ring-violet-500 border-transparent bg-violet-50/10' : 'border-slate-200'}`}>
                           <div className="flex-1 min-w-0">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Stock Espacio {index + 1}</span>
+                            <div className="flex items-center justify-between gap-1 mb-0.5">
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Stock Espacio {index + 1}</span>
+                              {assignedSpace?.spaceUsageType && (
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                                  assignedSpace.spaceUsageType === 'Despachos' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-200 text-slate-700'
+                                }`}>
+                                  {assignedSpace.spaceUsageType}
+                                </span>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={() => setActiveSlotIndexForSpacePicker(index)}
@@ -1591,15 +2162,19 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                // Al quitar un slot, recalcular el pendiente usando adminTotalInput como fuente de verdad
-                                setAdminSlots(prev => {
-                                  const next = [...prev];
-                                  next[index] = { spaceId: null, qty: '' };
-                                  const newSlotsTotal = next.reduce((a, c) => a + (Number(c.qty) || 0), 0);
-                                  const newPending = Math.max(0, adminTotalInput - newSlotsTotal);
-                                  setAdminPendingQty(newPending);
-                                  return next;
-                                });
+                                if (window.confirm('¿Está seguro de que desea eliminar este espacio de almacén?')) {
+                                  // Al quitar un slot, recalcular el pendiente usando adminTotalInput como fuente de verdad
+                                  setAdminSlots(prev => {
+                                    const next = [...prev];
+                                    next[index] = { spaceId: null, qty: '' };
+                                    const newSlotsTotal = next.reduce((a, c) => a + (Number(c.qty) || 0), 0);
+                                    const newPending = Math.max(0, adminTotalInput - newSlotsTotal);
+                                    setAdminPendingQty(newPending);
+                                    return next;
+                                  });
+                                  // Notificación al usuario
+                                  alert('Se ha eliminado un espacio de almacén. El stock del producto quedará en Pend. por Asignar.');
+                                }
                               }}
                               className="mt-4 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded"
                               title="Quitar espacio"
@@ -1718,6 +2293,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                           <tr>
                             <th className="p-2 font-semibold text-slate-600">Nombre</th>
                             <th className="p-2 font-semibold text-slate-600 text-center">Tipo</th>
+                            <th className="p-2 font-semibold text-slate-600 text-center">Tipo Uso</th>
                             <th className="p-2 font-semibold text-slate-600 text-center">Cercanía</th>
                             <th className="p-2 font-semibold text-slate-600 text-center">Productos</th>
                           </tr>
@@ -1725,6 +2301,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                         <tbody className="divide-y divide-slate-100">
                           {pickerFilteredSpaces.map(space => {
                             const spaceType = space.spaceTypeName || 'Estante';
+                            const usageType = space.spaceUsageType || 'Almacenamiento';
                             return (
                               <tr
                                 key={space.id}
@@ -1733,6 +2310,13 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                               >
                                 <td className="p-2 font-medium text-slate-800">{space.name}</td>
                                 <td className="p-2 text-center text-slate-500">{spaceType}</td>
+                                <td className="p-2 text-center">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    usageType === 'Despachos' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {usageType}
+                                  </span>
+                                </td>
                                 <td className="p-2 text-center text-slate-500 font-mono">{Math.round(Number(space.proximity ?? 0))}</td>
                                 <td className="p-2 text-center text-slate-500 font-mono">{Math.round(Number(space.productCount ?? 0))}</td>
                               </tr>
@@ -1740,7 +2324,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                           })}
                           {pickerFilteredSpaces.length === 0 && (
                             <tr>
-                              <td colSpan={4} className="p-8 text-center text-slate-400 italic">
+                              <td colSpan={5} className="p-8 text-center text-slate-400 italic">
                                 No se encontraron espacios
                               </td>
                             </tr>
@@ -1785,19 +2369,16 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
       ════════════════════════════════════════════════════════════════════════ */}
       {spaceEditProduct && (() => {
         const spProd    = getProduct(spaceEditProduct);
-        const spItems   = groupedInventory[spaceEditProduct] ?? [];
-        const assigned  = spItems.filter(i => i.warehouseSpaceId);
-        const pending   = spItems.filter(i => !i.warehouseSpaceId && Number(i.quantity) > 0);
-        const isPickerOpen = spaceEditActiveStockId !== null;
+        const isPickerOpen = activeSlotIndexForSpaceEditPicker !== null;
         return (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <div className={`bg-white rounded-3xl p-6 w-full ${isPickerOpen ? 'max-w-4xl' : 'max-w-lg'} shadow-xl border border-slate-200 my-8 transition-all duration-300`}>
+            <div className={`bg-white rounded-3xl p-6 w-full ${isPickerOpen ? 'max-w-5xl h-[85vh]' : 'max-w-2xl'} shadow-xl border border-slate-200 my-8 transition-all duration-300 flex flex-col`}>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">
                 {/* Panel Izquierdo: Lista de stocks */}
-                <div className={isPickerOpen ? 'lg:col-span-7 space-y-4' : 'lg:col-span-12 space-y-4'}>
+                <div className={`${isPickerOpen ? 'lg:col-span-7' : 'lg:col-span-12'} flex flex-col min-h-0`}>
                   {/* Header */}
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center mb-4 flex-shrink-0">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center">
                         <Layers className="w-5 h-5 text-emerald-600" />
@@ -1814,123 +2395,159 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                       <X className="w-6 h-6" />
                     </button>
                   </div>
-
-                  <div className="space-y-3">
-                    {assigned.map((item, idx) => {
-                      const space = item.warehouseSpaceId ? getLocation(item.warehouseSpaceId) : null;
-                      const isSavingThis = spaceEditSaving === item.id;
-                      const isActiveForPick = spaceEditActiveStockId === item.id;
-                      return (
-                        <div key={item.id} className={`flex items-center gap-3 p-3 border rounded-xl bg-slate-50 transition-all ${isActiveForPick ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/10' : 'border-slate-200'}`}>
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex-shrink-0">{idx + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ubicación</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSpaceEditActiveStockId(item.id);
-                                setSpaceEditPickerSearch('');
-                              }}
-                              className="mt-1 text-xs font-semibold flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-white border-slate-200 text-slate-700 hover:border-slate-300 w-full truncate"
-                            >
-                              <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                              <span className="truncate flex-1 text-left">{space?.name ?? 'Sin asignar'}</span>
-                              <span className="text-[10px] text-slate-400 font-normal">▼</span>
-                            </button>
-                          </div>
-                          
-                          <div className="w-20">
-                            <span className="block text-[10px] font-bold text-slate-400 text-center uppercase tracking-wider">Cantidad</span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={spaceEditQty[item.id] ?? item.quantity}
-                              onChange={e => setSpaceEditQty(q => ({ ...q, [item.id]: e.target.value }))}
-                              className="mt-1 w-full border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                            />
-                          </div>
-
-                          <button
-                            onClick={() => handleSaveSpaceQty(item.id)}
-                            disabled={isSavingThis}
-                            className="mt-4 p-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                            title="Guardar Cantidad"
-                          >
-                            {isSavingThis ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      );
-                    })}
-
-                    {pending.map(item => {
-                      const isSavingThis = spaceEditSaving === item.id;
-                      const isActiveForPick = spaceEditActiveStockId === item.id;
-                      return (
-                        <div key={item.id} className={`flex items-center gap-3 p-3 border rounded-xl bg-amber-50/50 transition-all ${isActiveForPick ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/10' : 'border-amber-200'}`}>
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700 text-xs font-bold flex-shrink-0">!</span>
-                          <div className="flex-1 min-w-0">
-                            <span className="block text-[10px] font-bold text-amber-700 uppercase tracking-wider">Ubicación Pendiente</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSpaceEditActiveStockId(item.id);
-                                setSpaceEditPickerSearch('');
-                              }}
-                              className="mt-1 text-xs font-semibold flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-white border-amber-200 text-amber-700 hover:border-amber-300 w-full truncate"
-                            >
-                              <MapPin className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                              <span className="truncate flex-1 text-left text-amber-600 italic">Asignar espacio...</span>
-                              <span className="text-[10px] text-amber-400 font-normal">▼</span>
-                            </button>
-                          </div>
-
-                          <div className="w-20">
-                            <span className="block text-[10px] font-bold text-amber-700 text-center uppercase tracking-wider">Cantidad</span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={spaceEditQty[item.id] ?? item.quantity}
-                              onChange={e => setSpaceEditQty(q => ({ ...q, [item.id]: e.target.value }))}
-                              className="mt-1 w-full border border-amber-300 rounded-lg px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                            />
-                          </div>
-
-                          <button
-                            onClick={() => handleSaveSpaceQty(item.id)}
-                            disabled={isSavingThis}
-                            className="mt-4 p-1.5 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors disabled:opacity-50"
-                            title="Guardar Cantidad"
-                          >
-                            {isSavingThis ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      );
-                    })}
-
-                    {assigned.length === 0 && pending.length === 0 && (
-                      <div className="py-8 text-center text-slate-400 text-sm">
-                        Este producto no tiene stock en ningún espacio.
-                      </div>
-                    )}
-                  </div>
-
+                  
                   {/* Mensaje de error */}
                   {spaceEditError && (
-                    <div className="px-4 py-3 bg-red-50 border border-red-300 rounded-xl text-xs text-red-700 flex items-start gap-2">
+                    <div className="px-4 py-3 mb-4 bg-red-50 border border-red-300 rounded-xl text-xs text-red-700 flex items-start gap-2 flex-shrink-0">
                       <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                       <span>{spaceEditError}</span>
                     </div>
                   )}
 
-                  {/* Nota informativa */}
-                  <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
-                    Usa ▼ para cambiar o asignar una ubicación en caliente. Modifica cantidades y confirma cada cambio individualmente con ✓.
-                    {' '}La suma de todas las ubicaciones debe ser siempre <strong>{spaceEditTotalOriginal}</strong> unidades.
+                  <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+                    <div className="space-y-4 border-t border-slate-100 pt-4">
+                      <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Distribución de Stock</h3>
+
+                      {/* Stock Pendiente por Asignación */}
+                      <div className="flex items-stretch border border-amber-200 rounded-xl overflow-hidden mb-3">
+                        <div className="bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 flex items-center border-r border-amber-200 flex-1">
+                          Pend. por Asignar
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          value={spaceEditPendingQty}
+                          onChange={e => {
+                            const newPending = Math.max(0, Number(e.target.value));
+                            setSpaceEditPendingQty(newPending);
+                          }}
+                          className="w-24 px-2 py-2 text-center text-sm font-mono font-bold text-amber-700 bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                        />
+                      </div>
+
+                      {/* Stock mínimo espacio despachos — solo si el almacén tiene espacios de tipo Despachos */}
+                      {warehouseSpaces.some(s =>
+                        String(s.warehouseId) === String(spaceEditWarehouseId) &&
+                        s.spaceUsageType === 'Despachos'
+                      ) && (
+                        <div className="flex items-stretch border border-orange-200 rounded-xl overflow-hidden mb-3">
+                          <div className="bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 flex items-center border-r border-orange-200 flex-1">
+                            <AlertTriangle className="w-3 h-3 mr-1.5 flex-shrink-0" />
+                            Stock mín. despachos
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            value={spaceEditMinStockDispatch}
+                            onChange={e => setSpaceEditMinStockDispatch(e.target.value)}
+                            className="w-24 px-2 py-2 text-center text-sm font-mono font-bold text-orange-700 bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                            title="Umbral de alerta de stock mínimo para espacios de tipo Despachos"
+                          />
+                        </div>
+                      )}
+                      
+                      {/* Indicador visual */}
+                      {spaceEditSlots.some(s => s.spaceId) && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 mb-3">
+                          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0"></span>
+                          Modifica las cantidades. Recuerda que la suma total debe ser {spaceEditTotalOriginal}.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 4 slots de stock de espacios */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {spaceEditSlots.map((slot, index) => {
+                        const assignedSpace = slot.spaceId ? getLocation(slot.spaceId) : null;
+                        const isActiveForPick = activeSlotIndexForSpaceEditPicker === index;
+                        return (
+                          <div key={index} className={`p-3 border rounded-xl flex items-center gap-3 bg-slate-50 transition-all ${isActiveForPick ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/10' : 'border-slate-200'}`}>
+                            <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-0.5">
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Stock Espacio {index + 1}</span>
+                              {assignedSpace?.spaceUsageType && (
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                                  assignedSpace.spaceUsageType === 'Despachos' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-200 text-slate-700'
+                                }`}>
+                                  {assignedSpace.spaceUsageType}
+                                </span>
+                              )}
+                            </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveSlotIndexForSpaceEditPicker(index)}
+                                className={`mt-1 text-xs font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded-lg border transition-all truncate w-full ${
+                                  assignedSpace
+                                    ? 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                    : 'bg-dashed border-dashed border-emerald-300 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-400'
+                                }`}
+                              >
+                                 <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                                 <span className="truncate flex-1 text-left">{assignedSpace?.name ?? 'Seleccionar Espacio'}</span>
+                                 <span className="text-[10px] text-slate-400 font-normal">▼</span>
+                              </button>
+                            </div>
+                            
+                            <div className="w-16">
+                              <span className="block text-[10px] font-bold text-slate-400 text-center uppercase tracking-wider">Cantidad</span>
+                              <input
+                                type="number"
+                                min="0"
+                                value={slot.qty}
+                                disabled={!slot.spaceId}
+                                onChange={e => {
+                                  const valStr = e.target.value;
+                                  const newQty = valStr === '' ? '' : Math.max(0, Number(valStr));
+                                  setSpaceEditSlots(prev => {
+                                    const next = [...prev];
+                                    next[index] = { ...next[index], qty: newQty };
+                                    if (newQty === '') {
+                                      next[index].spaceId = null;
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className={`mt-1 w-full border rounded-lg py-1 px-1.5 text-center text-xs font-mono font-bold focus:outline-none ${
+                                  slot.spaceId
+                                    ? 'bg-white border-slate-300 text-slate-900 focus:ring-2 focus:ring-emerald-500/40'
+                                    : 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                                }`}
+                              />
+                            </div>
+
+                            {slot.spaceId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSpaceEditSlots(prev => {
+                                    const next = [...prev];
+                                    next[index] = { spaceId: null, qty: '' };
+                                    return next;
+                                  });
+                                }}
+                                className="mt-4 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded"
+                                title="Quitar espacio"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div className="flex justify-end pt-4 border-t border-slate-200">
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 flex-shrink-0 mt-4">
                     <Button variant="secondary" onClick={() => setSpaceEditProduct(null)}>
-                      Cerrar
+                      Cancelar
+                    </Button>
+                    <Button
+                      onClick={handleSaveSpaceEdits}
+                      disabled={spaceEditSaving}
+                      className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+                    >
+                      {spaceEditSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      {spaceEditSaving ? 'Guardando...' : 'Guardar cambios'}
                     </Button>
                   </div>
                 </div>
@@ -1946,7 +2563,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => { setSpaceEditActiveStockId(null); setSpaceEditPickerSearch(''); }}
+                        onClick={() => { setActiveSlotIndexForSpaceEditPicker(null); setSpaceEditPickerSearch(''); }}
                         className="text-slate-400 hover:text-slate-600 p-1"
                       >
                         <X className="w-5 h-5" />
@@ -1982,6 +2599,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                           <tr>
                             <th className="p-2 font-semibold text-slate-600">Nombre</th>
                             <th className="p-2 font-semibold text-slate-600 text-center">Tipo</th>
+                            <th className="p-2 font-semibold text-slate-600 text-center">Tipo Uso</th>
                             <th className="p-2 font-semibold text-slate-600 text-center">Cercanía</th>
                             <th className="p-2 font-semibold text-slate-600 text-center">Productos</th>
                           </tr>
@@ -1989,6 +2607,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                         <tbody className="divide-y divide-slate-100">
                           {spaceEditPickerFilteredSpaces.map(space => {
                             const spaceType = space.spaceTypeName || 'Estante';
+                            const usageType = space.spaceUsageType || 'Almacenamiento';
                             return (
                               <tr
                                 key={space.id}
@@ -1997,6 +2616,13 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                               >
                                 <td className="p-2 font-medium text-slate-800">{space.name}</td>
                                 <td className="p-2 text-center text-slate-500">{spaceType}</td>
+                                <td className="p-2 text-center">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    usageType === 'Despachos' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {usageType}
+                                  </span>
+                                </td>
                                 <td className="p-2 text-center text-slate-500 font-mono">{Math.round(Number(space.proximity ?? 0))}</td>
                                 <td className="p-2 text-center text-slate-500 font-mono">{Math.round(Number(space.productCount ?? 0))}</td>
                               </tr>
@@ -2004,7 +2630,7 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
                           })}
                           {spaceEditPickerFilteredSpaces.length === 0 && (
                             <tr>
-                              <td colSpan={4} className="p-8 text-center text-slate-400 italic">
+                              <td colSpan={5} className="p-8 text-center text-slate-400 italic">
                                 No se encontraron espacios
                               </td>
                             </tr>
@@ -2029,10 +2655,415 @@ export const InventoryTab: React.FC<InventoryTabProps> = ({
         />
       )}
 
+      {isBulkEditSpaceScannerOpen && (
+        <QRScannerModal
+          isOpen={isBulkEditSpaceScannerOpen}
+          onClose={() => setIsBulkEditSpaceScannerOpen(false)}
+          onScan={code => { setBulkEditSpaceSearch(code); setIsBulkEditSpaceScannerOpen(false); }}
+        />
+      )}
+
       <LockModal {...lockEdit.lockModalProps} />
       <LockModal {...lockView.lockModalProps} />
       <LockModal {...lockDelete.lockModalProps} />
-      <LockModal {...lockExport.lockModalProps} />
+
+      {/* ─── Barra de acción flotante (EDICIÓN MÚLTIPLE) ─────────────────────── */}
+      {isBulkEditMode && bulkSelectedRows.size > 0 && (
+        <div className="sticky bottom-4 mt-4 mx-2 bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700 p-3 flex flex-col sm:flex-row items-center gap-3 z-30 animate-in slide-in-from-bottom-4 duration-200 no-print">
+          <div className="flex items-center gap-2 text-sm font-medium shrink-0">
+            <CheckSquare className="w-4 h-4 text-blue-400" />
+            <span className="text-blue-300 font-bold">{bulkSelectedRows.size}</span>
+            <span className="text-slate-300">producto{bulkSelectedRows.size !== 1 ? 's' : ''} seleccionado{bulkSelectedRows.size !== 1 ? 's' : ''}</span>
+            <button
+              onClick={() => setBulkSelectedRows(new Set())}
+              className="ml-2 text-slate-400 hover:text-white transition-colors text-xs underline underline-offset-2"
+            >Deseleccionar todo</button>
+          </div>
+          <div className="sm:ml-auto">
+            <button
+              onClick={openBulkEditModal}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all shadow-lg shadow-blue-900/30"
+            >
+              <Layers className="w-4 h-4" />
+              Asignar Ubicación y Cantidad en Lote
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Modal EDICIÓN MÚLTIPLE ──────────────────────────────────────────── */}
+      {bulkEditModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-0 w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+
+            {/* Header del modal */}
+            <div className="flex items-center gap-3 p-6 pb-4 border-b border-slate-100 shrink-0">
+              <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center shrink-0">
+                <ListChecks className="w-6 h-6 text-blue-600" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-bold text-slate-900">Edición Múltiple de Stock</h2>
+                <p className="text-sm text-slate-500">{bulkSelectedRows.size} producto{bulkSelectedRows.size !== 1 ? 's' : ''} seleccionado{bulkSelectedRows.size !== 1 ? 's' : ''}</p>
+              </div>
+              <button onClick={() => setBulkEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-6 space-y-6">
+
+              {/* Paso 1: Almacén */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+                  <span className="inline-flex w-5 h-5 rounded-full bg-blue-600 text-white text-xs items-center justify-center font-bold shrink-0">1</span>
+                  Seleccionar Almacén
+                </label>
+                <select
+                  value={bulkEditWarehouseId}
+                  onChange={e => { setBulkEditWarehouseId(e.target.value); setBulkEditSpaceId(null); setBulkEditSpaceSearch(''); }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                >
+                  <option value="">-- Selecciona un almacén --</option>
+                  {warehouses.map(wh => (
+                    <option key={wh.id} value={wh.id}>{wh.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Paso 2: Ubicación */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+                  <span className="inline-flex w-5 h-5 rounded-full bg-blue-600 text-white text-xs items-center justify-center font-bold shrink-0">2</span>
+                  Seleccionar Ubicación
+                  {bulkEditSpaceId && <span className="ml-2 text-xs text-emerald-600 font-medium">✓ {bulkEditAvailableSpaces.find(s => s.id === bulkEditSpaceId)?.name}</span>}
+                </label>
+                {!bulkEditWarehouseId ? (
+                  <p className="text-sm text-slate-400 italic">Selecciona un almacén primero.</p>
+                ) : (
+                  <>
+                    <div className="flex gap-1.5 mb-3">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar ubicación por nombre, código QR o tipo..."
+                          value={bulkEditSpaceSearch}
+                          onChange={e => setBulkEditSpaceSearch(e.target.value)}
+                          className="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsBulkEditSpaceScannerOpen(true)}
+                        className="px-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors"
+                        title="Escanear código QR de espacio"
+                      >
+                        <ScanLine className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="border border-slate-200 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 sticky top-0 border-b border-slate-200">
+                          <tr>
+                            <th className="px-3 py-2 font-semibold text-slate-600">Nombre</th>
+                            <th className="px-3 py-2 font-semibold text-slate-600 text-center">Tipo</th>
+                            <th className="px-3 py-2 font-semibold text-slate-600 text-center">Productos</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {bulkEditAvailableSpaces.length === 0 ? (
+                            <tr><td colSpan={3} className="px-3 py-4 text-center text-slate-400 italic">Sin espacios disponibles</td></tr>
+                          ) : bulkEditAvailableSpaces.map(sp => (
+                            <tr
+                              key={sp.id}
+                              onClick={() => setBulkEditSpaceId(sp.id)}
+                              className={`cursor-pointer transition-colors ${bulkEditSpaceId === sp.id ? 'bg-blue-50 font-medium' : 'hover:bg-slate-50'}`}
+                            >
+                              <td className="px-3 py-2 text-slate-800 flex items-center gap-1.5">
+                                {bulkEditSpaceId === sp.id && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
+                                {sp.name}
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-500">{sp.spaceTypeName || '—'}</td>
+                              <td className="px-3 py-2 text-center font-mono text-slate-500">{sp.productCount ?? 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Paso 3: Cantidades por producto */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+                  <span className="inline-flex w-5 h-5 rounded-full bg-blue-600 text-white text-xs items-center justify-center font-bold shrink-0">3</span>
+                  Asignar Cantidades por Producto
+                </label>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-2.5 font-semibold text-slate-600">Producto</th>
+                        <th className="px-4 py-2.5 font-semibold text-slate-600 text-center w-32">Stock actual</th>
+                        <th className="px-4 py-2.5 font-semibold text-slate-600 text-center w-36">Nueva cantidad</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {[...bulkSelectedRows].map(rowKey => {
+                        const [productId] = rowKey.split('::');
+                        const product = getProduct(productId);
+                        const row = inventoryRows.find(r => r.productId === productId);
+                        const currentQty = row ? row.items.reduce((a, c) => a + Number(c.quantity), 0) : 0;
+                        // Stock sin asignar (pendiente) disponible para este producto
+                        const unassignedQty = row
+                          ? row.items.filter(i => !i.warehouseSpaceId).reduce((a, c) => a + Number(c.quantity), 0)
+                          : 0;
+                        const newQtyVal = Number(bulkEditQtyMap[productId] ?? 0);
+                        const exceedsUnassigned = newQtyVal > unassignedQty;
+                        return (
+                          <tr key={rowKey}>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center shrink-0">
+                                  {product?.imageUrl
+                                    ? <img src={product.imageUrl} className="w-full h-full object-cover rounded" alt="" />
+                                    : <Package className="w-3.5 h-3.5 text-slate-400" />}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-slate-900 text-xs leading-tight">{product?.name || '—'}</p>
+                                  <p className="font-mono text-[10px] text-blue-500">{product?.code || ''}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className="inline-flex items-center justify-center min-w-[2.5rem] h-6 px-2 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
+                                {currentQty}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex flex-col items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={unassignedQty}
+                                  value={bulkEditQtyMap[productId] ?? ''}
+                                  onChange={e => {
+                                    const val = e.target.value === '' ? '' : String(Math.min(Number(e.target.value), unassignedQty));
+                                    setBulkEditQtyMap(prev => ({ ...prev, [productId]: val }));
+                                  }}
+                                  placeholder="0"
+                                  className={`w-24 border rounded-lg px-3 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
+                                    exceedsUnassigned
+                                      ? 'border-amber-400 text-amber-700 bg-amber-50'
+                                      : 'border-slate-300 text-slate-900'
+                                  }`}
+                                />
+                                <span className="text-[10px] text-slate-400">
+                                  Máx: <span className={`font-semibold ${unassignedQty === 0 ? 'text-red-500' : 'text-amber-600'}`}>{unassignedQty}</span> sin asignar
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                  ⚠ Las cantidades se asignan en la ubicación seleccionada. Si ya existe stock en esa ubicación, se sobrescribirá.
+                </p>
+              </div>
+
+            </div>
+
+            {/* Footer del modal */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 shrink-0">
+              {bulkEditError && <p className="text-sm text-red-600 mb-3">{bulkEditError}</p>}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setBulkEditModalOpen(false)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-sm transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleBulkEditSave}
+                  disabled={bulkEditSaving || !bulkEditSpaceId || !bulkEditWarehouseId}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {bulkEditSaving
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
+                    : <><Save className="w-4 h-4" /> Guardar {bulkSelectedRows.size} producto{bulkSelectedRows.size !== 1 ? 's' : ''}</>}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          MODAL EXPORTAR PDF
+      ════════════════════════════════════════════════════════════════════════ */}
+      {isPdfModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-xl border border-slate-200 overflow-hidden">
+            <div className="p-6 pb-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Exportar PDF</h2>
+                  <p className="text-xs text-slate-500">Selecciona los datos a incluir</p>
+                </div>
+              </div>
+              <button onClick={() => setIsPdfModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[calc(100vh-200px)]">
+
+              {/* ─ Filtros de PDF ─────────────────────────────────────────── */}
+              <div className="mb-5 space-y-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filtros del Reporte</p>
+
+                {/* Almacén */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Almacén</label>
+                  <select
+                    value={pdfWarehouseFilter}
+                    onChange={e => {
+                      setPdfWarehouseFilter(e.target.value);
+                      setPdfGroupFilter('');
+                      setPdfSpaceFilter('');
+                    }}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  >
+                    <option value="">Todos los almacenes</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Grupo de Espacio */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Grupo de Espacio</label>
+                  <select
+                    value={pdfGroupFilter}
+                    onChange={e => {
+                      setPdfGroupFilter(e.target.value);
+                      setPdfSpaceFilter(''); // limpiar espacio al cambiar grupo
+                    }}
+                    disabled={!pdfWarehouseFilter}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">Todos los grupos</option>
+                    {spaceGroups
+                      .filter(g => String(g.warehouseId) === String(pdfWarehouseFilter))
+                      .map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                  </select>
+                  {!pdfWarehouseFilter && (
+                    <p className="text-xs text-slate-400 mt-1">Selecciona un almacén primero</p>
+                  )}
+                </div>
+
+                {/* Espacio Individual */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Espacio Individual
+                    {pdfGroupFilter && !pdfSpaceFilter && (
+                      <span className="ml-2 text-xs text-blue-500 font-normal">(se usa el grupo seleccionado)</span>
+                    )}
+                  </label>
+                  <select
+                    value={pdfSpaceFilter}
+                    onChange={e => setPdfSpaceFilter(e.target.value)}
+                    disabled={!pdfWarehouseFilter}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">Todos los espacios</option>
+                    {warehouseSpaces
+                      .filter(s => {
+                        if (!pdfWarehouseFilter) return false;
+                        const matchWh = String(s.warehouseId) === String(pdfWarehouseFilter);
+                        if (!pdfGroupFilter) return matchWh;
+                        const grp = spaceGroups.find(g => String(g.id) === String(pdfGroupFilter));
+                        return matchWh && (grp ? grp.spaceIds.includes(Number(s.id)) : true);
+                      })
+                      .map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                  </select>
+                  {!pdfWarehouseFilter && (
+                    <p className="text-xs text-slate-400 mt-1">Selecciona un almacén primero</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 mb-5" />
+
+              {/* ─ Columnas a incluir ─────────────────────────────────────── */}
+              <div className="space-y-3 bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Columnas a incluir</p>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.name} onChange={e => setPdfColumns(p => ({...p, name: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Nombre del Producto</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.category} onChange={e => setPdfColumns(p => ({...p, category: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Categoría</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.subcategory} onChange={e => setPdfColumns(p => ({...p, subcategory: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Sub-Categoría</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.code} onChange={e => setPdfColumns(p => ({...p, code: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Código</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.totalQty} onChange={e => setPdfColumns(p => ({...p, totalQty: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Stock Total</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.pendingQty} onChange={e => setPdfColumns(p => ({...p, pendingQty: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Stock Sin Ubicación</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.warehouse} onChange={e => setPdfColumns(p => ({...p, warehouse: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Almacén</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={pdfColumns.spaces} onChange={e => setPdfColumns(p => ({...p, spaces: e.target.checked}))} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600" />
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">Espacios Asignados</span>
+                </label>
+              </div>
+            </div>
+            
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3">
+              <button
+                onClick={() => setIsPdfModalOpen(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-sm transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleGeneratePDF}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2"
+              >
+                <Download className="w-4 h-4" /> Generar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

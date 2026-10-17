@@ -49,21 +49,22 @@ export interface Provider {
 
 export interface Product {
   id: string;
-  code: string; // Auto-generated QR/Numeric
+  code: string;          // Código del producto (valor escaneado o escrito)
+  codeType?: 'qr' | 'barcode'; // Tipo de representación visual: QR o código de barras (default: 'qr')
   name: string;
   imageUrl: string;
   footerUrl: string;
   categoryId: string;
   subcategoryId?: string | null;
-  providers?: string[]; // IDs de proveedores
+  providers?: string[];
   dimensions: {
     height: number;
     width: number;
     depth: number;
   };
-  costs: number[]; // Max 2
-  prices: number[]; // Max 5
-  enabledWarehouses: string[]; // Warehouse IDs
+  costs: number[];
+  prices: number[];
+  enabledWarehouses: string[];
 }
 
 export interface Warehouse {
@@ -72,6 +73,8 @@ export interface Warehouse {
   description: string;
   qrCode: string;
 }
+
+export type SpaceUsageType = 'Despachos' | 'Almacenamiento';
 
 export interface SpaceType {
   id: string;
@@ -84,9 +87,11 @@ export interface WarehouseSpace {
   warehouseName?: string;
   spaceTypeId: string;
   spaceTypeName?: string;
+  spaceUsageType: SpaceUsageType;
   name: string;
   proximity: number;
   qrCode: string;
+  groupId?: string | number;
   productCount?: number;
   totalQuantity?: number;
 }
@@ -97,7 +102,9 @@ export interface Stock {
   warehouseId: string;
   warehouseSpaceId?: string; // Optional if it's raw stock not yet assigned
   quantity: number;
+  reservedQuantity?: number;
   minStock: number;
+  minStockDispatch: number;
 }
 
 export interface PickingLotItem {
@@ -180,7 +187,8 @@ export type LockModule =
   | 'DISINCORPORATION'
   | 'USERS'
   | 'SETTINGS'
-  | 'INVENTORY';
+  | 'INVENTORY'
+  | 'DISPATCHES';
 
 export type LockAction =
   | 'DELETE'
@@ -203,5 +211,48 @@ export interface LockKey {
   description?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+// ============================================================
+// DESPACHOS
+// ============================================================
+
+export type DispatchOrderStatus = 'PENDIENTE' | 'PROCESANDO' | 'DESPACHADO' | 'CANCELADO' | 'EN_PROCESO' | 'CONFIRMADO';
+
+export type DispatchDeliveryType =
+  | 'TIENDA SUPREPARTS'
+  | 'DELIVERY TIENDA'
+  | 'DELIVERY VENDEDOR'
+  | 'RETIRO EN TIENDA'
+  | 'OTRO';
+
+export interface DispatchOrderItem {
+  id: string;
+  productId: string;
+  requestedQuantity: number;
+  quantityRequired?: number;
+  warehouseSpaceId?: string | null;
+  spaceSelectionType?: 'AUTO' | 'MANUAL';
+  dispatchStatus?: 'PENDIENTE' | 'DESPACHADO' | 'INSUFICIENTE';
+  warehouseSpaceAssignments?: { warehouseSpaceId: string; quantity: number }[];
+  notes?: string;
+}
+
+export interface DispatchOrder {
+  id: string;
+  code: string;              // Ej: D00001
+  warehouseId: string;
+  requestedBy: string;       // Quien solicita
+  clientName: string;        // Nombre Cliente
+  deliveryType: DispatchDeliveryType;
+  origin?: 'DIRECT' | 'EXTERNAL' | string;
+  items: DispatchOrderItem[];
+  status: DispatchOrderStatus;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+  dispatchedBy?: string;
+  updatedAt?: string;
+  dispatchedAt?: string;
 }
 

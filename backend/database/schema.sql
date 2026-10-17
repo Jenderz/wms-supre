@@ -25,14 +25,16 @@ CREATE TABLE space_types (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE warehouse_spaces (
-    id            INT AUTO_INCREMENT PRIMARY KEY,
-    warehouse_id  INT NOT NULL,
-    space_type_id INT NOT NULL,
-    name          VARCHAR(100) NOT NULL,
-    proximity     DECIMAL(10,2) NOT NULL DEFAULT 0,
-    qr_code       VARCHAR(255),
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    warehouse_id     INT NOT NULL,
+    space_type_id    INT NOT NULL,
+    space_usage_type ENUM('Despachos','Almacenamiento') NOT NULL DEFAULT 'Almacenamiento',
+    name             VARCHAR(100) NOT NULL,
+    proximity        DECIMAL(10,2) NOT NULL DEFAULT 0,
+    qr_code          VARCHAR(255),
     FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE,
-    FOREIGN KEY (space_type_id) REFERENCES space_types(id) ON DELETE RESTRICT
+    FOREIGN KEY (space_type_id) REFERENCES space_types(id) ON DELETE RESTRICT,
+    INDEX idx_space_usage_type (space_usage_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -154,7 +156,9 @@ CREATE TABLE stock (
     warehouse_id       INT NOT NULL,
     warehouse_space_id INT,
     quantity           DECIMAL(12,4) NOT NULL DEFAULT 0,
+    reserved_quantity  DECIMAL(12,4) NOT NULL DEFAULT 0,
     min_stock          DECIMAL(12,4) NOT NULL DEFAULT 0,
+    min_stock_dispatch DECIMAL(12,4) NOT NULL DEFAULT 0,
     FOREIGN KEY (product_id)         REFERENCES products(id),
     FOREIGN KEY (warehouse_id)       REFERENCES warehouses(id),
     FOREIGN KEY (warehouse_space_id) REFERENCES warehouse_spaces(id) ON DELETE SET NULL,
@@ -266,3 +270,88 @@ INSERT INTO users (name, username, password_hash, role, permissions) VALUES
 -- ============================================================
 INSERT IGNORE INTO categories (name, code, description, is_fractional, fraction_type)
 VALUES ('Sin Categoría', 'SIN-CAT', 'Categoría reservada del sistema. Asignada automáticamente a productos sin clasificar.', 0, NULL);
+
+
+-- ============================================================
+-- 8. GRUPOS DE ESPACIOS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS space_groups (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    name         VARCHAR(100) NOT NULL,
+    warehouse_id INT,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS space_group_items (
+    group_id           INT NOT NULL,
+    warehouse_space_id INT NOT NULL,
+    PRIMARY KEY (group_id, warehouse_space_id),
+    FOREIGN KEY (group_id) REFERENCES space_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (warehouse_space_id) REFERENCES warehouse_spaces(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- 9. OPERACIONES: DESPACHOS (DispatchOrder)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dispatch_orders (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    code           VARCHAR(50) NOT NULL UNIQUE,
+    warehouse_id   INT NOT NULL,
+    requested_by   VARCHAR(100) NOT NULL,
+    client_name    VARCHAR(150) NOT NULL,
+    delivery_type  VARCHAR(100) NOT NULL DEFAULT 'TIENDA SUPREPARTS',
+    origin         VARCHAR(50)  NOT NULL DEFAULT 'DIRECT',
+    status         ENUM('PENDIENTE','PROCESANDO','DESPACHADO','CANCELADO') NOT NULL DEFAULT 'PENDIENTE',
+    notes          TEXT,
+    created_by     INT NOT NULL,
+    dispatched_by  INT NULL,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    dispatched_at  TIMESTAMP NULL,
+    FOREIGN KEY (warehouse_id)  REFERENCES warehouses(id),
+    FOREIGN KEY (created_by)    REFERENCES users(id),
+    FOREIGN KEY (dispatched_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_dispatch_status (status),
+    INDEX idx_dispatch_warehouse (warehouse_id),
+    INDEX idx_dispatch_code (code),
+    INDEX idx_dispatch_origin (origin)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS dispatch_order_items (
+    id                   INT AUTO_INCREMENT PRIMARY KEY,
+    dispatch_order_id    INT NOT NULL,
+    product_id           INT NOT NULL,
+    requested_quantity   DECIMAL(12,4) NOT NULL,
+    warehouse_space_id   INT NULL,
+    space_selection_type ENUM('AUTO','MANUAL') NOT NULL DEFAULT 'AUTO',
+    dispatch_status      ENUM('PENDIENTE','DESPACHADO','INSUFICIENTE') NOT NULL DEFAULT 'PENDIENTE',
+    notes                TEXT,
+    FOREIGN KEY (dispatch_order_id) REFERENCES dispatch_orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id)        REFERENCES products(id),
+    FOREIGN KEY (warehouse_space_id) REFERENCES warehouse_spaces(id) ON DELETE SET NULL,
+    INDEX idx_dispatch_items_order (dispatch_order_id),
+    INDEX idx_dispatch_items_product (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- 10. SEGURIDAD Y CANDADOS (AccessKeys)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS access_keys (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(100) NOT NULL COMMENT 'Etiqueta descriptiva de la llave',
+    module      VARCHAR(50)  NOT NULL COMMENT 'CATALOG, CATEGORIES, PROVIDERS, etc.',
+    action      VARCHAR(50)  NOT NULL DEFAULT '*' COMMENT 'DELETE, EDIT, CREATE, IMPORT, EXPORT, * = todas',
+    key_hash    VARCHAR(255) NOT NULL COMMENT 'bcrypt del PIN/clave — nunca se expone',
+    is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+    description TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_module_action (module, action)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+

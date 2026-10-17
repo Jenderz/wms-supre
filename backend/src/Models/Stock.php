@@ -19,11 +19,13 @@ class Stock
     {
         return $this->db->query(
             "SELECT s.id,
-                    s.product_id        AS productId,
-                    s.warehouse_id      AS warehouseId,
-                    s.warehouse_space_id AS warehouseSpaceId,
+                    s.product_id              AS productId,
+                    s.warehouse_id            AS warehouseId,
+                    s.warehouse_space_id       AS warehouseSpaceId,
                     s.quantity,
-                    s.min_stock         AS minStock
+                    s.reserved_quantity       AS reservedQuantity,
+                    s.min_stock               AS minStock,
+                    s.min_stock_dispatch      AS minStockDispatch
              FROM stock s
              ORDER BY s.product_id, s.warehouse_id"
         )->fetchAll();
@@ -43,26 +45,83 @@ class Stock
      */
     public function upsert(array $data): void
     {
-        $spaceId = isset($data['warehouseSpaceId']) && $data['warehouseSpaceId'] !== null
+        $spaceId             = isset($data['warehouseSpaceId']) && $data['warehouseSpaceId'] !== null
             ? (int) $data['warehouseSpaceId']
             : null;
+        $deductFromUnassigned = !empty($data['deductFromUnassigned']) && $spaceId !== null;
 
-        $stmt = $this->db->prepare(
-            "INSERT INTO stock (product_id, warehouse_id, warehouse_space_id, space_key, quantity, min_stock)
-             VALUES (:product_id, :warehouse_id, :warehouse_space_id, :space_key, :quantity, :min_stock)
-             ON DUPLICATE KEY UPDATE
-                quantity  = VALUES(quantity),
-                min_stock = VALUES(min_stock),
-                warehouse_space_id = VALUES(warehouse_space_id)"
-        );
-        $stmt->execute([
-            ':product_id'          => (int) $data['productId'],
-            ':warehouse_id'        => (int) $data['warehouseId'],
-            ':warehouse_space_id'  => $spaceId,
-            ':space_key'           => $spaceId ?? 0,   // 0 = stock pendiente sin espacio
-            ':quantity'            => (float) $data['quantity'],
-            ':min_stock'           => (float) ($data['minStock'] ?? 0),
-        ]);
+        $this->db->beginTransaction();
+        try {
+            // Asegurarse de que el almacén esté asignado al producto
+            $this->db->prepare(
+                "INSERT IGNORE INTO product_warehouses (product_id, warehouse_id) VALUES (:pid, :wid)"
+            )->execute([
+                ':pid' => (int) $data['productId'],
+                ':wid' => (int) $data['warehouseId'],
+            ]);
+
+            // Upsert en la ubicación destino (o en pendientes si spaceId es null)
+            $stmt = $this->db->prepare(
+                "INSERT INTO stock (product_id, warehouse_id, warehouse_space_id, space_key, quantity, min_stock, min_stock_dispatch)
+                 VALUES (:product_id, :warehouse_id, :warehouse_space_id, :space_key, :quantity, :min_stock, :min_stock_dispatch)
+                 ON DUPLICATE KEY UPDATE
+                    quantity              = VALUES(quantity),
+                    min_stock             = VALUES(min_stock),
+                    min_stock_dispatch    = VALUES(min_stock_dispatch),
+                    warehouse_space_id    = VALUES(warehouse_space_id)"
+            );
+            $stmt->execute([
+                ':product_id'            => (int) $data['productId'],
+                ':warehouse_id'          => (int) $data['warehouseId'],
+                ':warehouse_space_id'    => $spaceId,
+                ':space_key'             => $spaceId ?? 0,
+                ':quantity'              => (float) $data['quantity'],
+                ':min_stock'             => (float) ($data['minStock'] ?? 0),
+                ':min_stock_dispatch'    => (float) ($data['minStockDispatch'] ?? 0),
+            ]);
+
+            // Si se pide descontar del stock sin asignar (space_key = 0), hacerlo dentro
+            // de la misma transacción para mantener consistencia.
+            if ($deductFromUnassigned) {
+                $qty = (float) $data['quantity'];
+
+                $this->db->prepare(
+                    "UPDATE stock
+                     SET quantity = quantity - :qty
+                     WHERE product_id      = :product_id
+                       AND warehouse_id    = :warehouse_id
+                       AND space_key       = 0"
+                )->execute([
+                    ':qty'        => $qty,
+                    ':product_id' => (int) $data['productId'],
+                    ':warehouse_id' => (int) $data['warehouseId'],
+                ]);
+
+                // Limpiar fila pendiente si quedó en 0 o menos
+                // Se excluyen espacios tipo 'Despachos': deben mantenerse con quantity=0
+                // para indicar que requieren reabastecimiento (OBS 1.4)
+                $this->db->prepare(
+                    "DELETE FROM stock
+                     WHERE product_id   = :product_id
+                       AND warehouse_id = :warehouse_id
+                       AND space_key    = 0
+                       AND quantity    <= 0
+                       AND (warehouse_space_id IS NULL
+                            OR warehouse_space_id NOT IN (
+                                SELECT id FROM warehouse_spaces
+                                WHERE space_usage_type = 'Despachos'
+                            ))"
+                )->execute([
+                    ':product_id'   => (int) $data['productId'],
+                    ':warehouse_id' => (int) $data['warehouseId'],
+                ]);
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 
     public function adjustQuantity(int $productId, int $warehouseId, ?int $warehouseSpaceId, float $delta): void
@@ -104,14 +163,25 @@ class Stock
                 ':quantity'           => $quantity,
             ]);
 
-            // Limpiar fila origen si quedó en 0 o menos
+            // Limpiar fila origen si quedó en 0 o menos.
+            // Se excluyen espacios tipo 'Despachos': permanecen en quantity=0 (OBS 1.4)
             if ($fromSpaceId === null) {
                 $this->db->prepare(
-                    "DELETE FROM stock WHERE product_id = ? AND warehouse_id = ? AND warehouse_space_id IS NULL AND quantity <= 0"
+                    "DELETE FROM stock
+                     WHERE product_id = ? AND warehouse_id = ?
+                       AND warehouse_space_id IS NULL
+                       AND quantity <= 0"
                 )->execute([$productId, $warehouseId]);
             } else {
                 $this->db->prepare(
-                    "DELETE FROM stock WHERE product_id = ? AND warehouse_id = ? AND warehouse_space_id = ? AND quantity <= 0"
+                    "DELETE FROM stock
+                     WHERE product_id = ? AND warehouse_id = ?
+                       AND warehouse_space_id = ?
+                       AND quantity <= 0
+                       AND warehouse_space_id NOT IN (
+                           SELECT id FROM warehouse_spaces
+                           WHERE space_usage_type = 'Despachos'
+                       )"
                 )->execute([$productId, $warehouseId, $fromSpaceId]);
             }
 

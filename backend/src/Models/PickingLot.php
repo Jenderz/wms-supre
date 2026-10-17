@@ -31,7 +31,10 @@ class PickingLot
         )->fetchAll();
 
         foreach ($lots as &$lot) {
-            $lot['items'] = $this->getItems((int) $lot['id']);
+            $lot['id']          = (string) $lot['id'];
+            $lot['warehouseId'] = (string) $lot['warehouseId'];
+            $lot['createdBy']   = (string) $lot['createdBy'];
+            $lot['items']       = $this->getItems((int) $lot['id']);
         }
         return $lots;
     }
@@ -52,7 +55,10 @@ class PickingLot
         $stmt->execute([':id' => $id]);
         $lot = $stmt->fetch();
         if (!$lot) return null;
-        $lot['items'] = $this->getItems($id);
+        $lot['id']          = (string) $lot['id'];
+        $lot['warehouseId'] = (string) $lot['warehouseId'];
+        $lot['createdBy']   = (string) $lot['createdBy'];
+        $lot['items']       = $this->getItems($id);
         return $lot;
     }
 
@@ -138,12 +144,17 @@ class PickingLot
         $stmt->execute([':lid' => $lotId]);
         $items = $stmt->fetchAll();
         foreach ($items as &$item) {
-            $item['packagesConfig']    = json_decode($item['packagesConfig'] ?? '[]', true);
+            $item['id']                = (string) $item['id'];
+            $item['productId']         = (string) $item['productId'];
+            $item['quantityToEnter']   = (float) $item['quantityToEnter'];
+            $item['numberOfPackages']  = (int) $item['numberOfPackages'];
+            $item['packagesConfig']    = json_decode($item['packagesConfig'] ?? '[]', true) ?: [];
             $item['packageDimensions'] = [
-                'height' => $item['height'],
-                'width'  => $item['width'],
-                'depth'  => $item['depth'],
+                'height' => $item['height'] !== null ? (float) $item['height'] : null,
+                'width'  => $item['width'] !== null ? (float) $item['width'] : null,
+                'depth'  => $item['depth'] !== null ? (float) $item['depth'] : null,
             ];
+            $item['minStockAlert']     = (int) ($item['minStockAlert'] ?? 0);
             unset($item['height'], $item['width'], $item['depth']);
         }
         return $items;

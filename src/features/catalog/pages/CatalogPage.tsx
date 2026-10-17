@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useCatalog } from '../hooks/useCatalog';
 import { useProviders } from '../hooks/useProviders';
-import { Plus, Search, Edit2, Package, Trash2, X, Upload, Download, FileDown, ScanLine, DollarSign, FileEdit, ChevronUp, ChevronDown, ChevronsUpDown, Warehouse } from 'lucide-react';
+import { Plus, Search, Edit2, Package, Trash2, X, Upload, Download, FileDown, ScanLine, DollarSign, FileEdit, ChevronUp, ChevronDown, ChevronsUpDown, Warehouse, CheckSquare, Square, Layers, Tag, UserCheck, Building2, Loader2 } from 'lucide-react';
 import Papa from 'papaparse';
 import { CategoriesPage } from './CategoriesPage';
 import { ProvidersPage } from './ProvidersPage';
@@ -11,7 +11,8 @@ import { Badge } from '../../../components/ui/Badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../../components/ui/Table';
 import { Product } from '../../../types';
 import { QRCodeCanvas } from 'qrcode.react';
-import { QRScannerModal } from '../../../components/QRScannerModal';
+import { QRScannerModal, ScanType } from '../../../components/QRScannerModal';
+import { BarcodeDisplay, BarcodeDisplayHandle, downloadBarcodeAsPng } from '../../../components/BarcodeDisplay';
 import { useLockedAction } from '../../../hooks/useLockedAction';
 import { LockModal } from '../../../components/LockModal';
 import { ImportResultModal, ImportResultData } from '../../../components/ImportResultModal';
@@ -21,7 +22,7 @@ type SortKey = 'name' | 'category' | 'provider' | 'price';
 type SortDir = 'asc' | 'desc';
 
 export const CatalogPage: React.FC = () => {
-  const { products, categories, warehouses, isLoading, getCategoryName, getProviderName, saveProduct, setAllProducts, deleteProduct, refresh } = useCatalog();
+  const { products, categories, warehouses, isLoading, getCategoryName, getProviderName, saveProduct, setAllProducts, deleteProduct, batchAction, refresh } = useCatalog();
   const { providers } = useProviders();
 
   // Llaves de acceso para Productos
@@ -33,9 +34,82 @@ export const CatalogPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  // Scanner dentro del formulario para rellenar el campo código
+  const [isFormScannerOpen, setIsFormScannerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Refs de BarcodeDisplay en la tabla para descarga PNG
+  const barcodeRefs = useRef<Record<string, BarcodeDisplayHandle | null>>({});
   const [showFilters, setShowFilters] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+
+  // ─── Selección múltiple / Acciones por lote ─────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  type BatchAction = 'delete' | 'setCategory' | 'setSubcategory' | 'setProvider' | 'addWarehouse';
+  const [batchModal, setBatchModal] = useState<BatchAction | null>(null);
+  const [batchValue, setBatchValue] = useState<string>('');
+  const [batchSubCategoryForCat, setBatchSubCategoryForCat] = useState<string>('');
+  const [isBatchLoading, setIsBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const lockBatch = useLockedAction('CATALOG', 'EDIT');
+  const lockBatchDelete = useLockedAction('CATALOG', 'DELETE');
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === sortedProducts.length && sortedProducts.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(sortedProducts.map(p => String(p.id))));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleBatchOpen = (action: BatchAction) => {
+    setBatchError(null);
+    setBatchValue('');
+    setBatchSubCategoryForCat('');
+    setBatchModal(action);
+  };
+
+  const handleBatchConfirm = async () => {
+    if (!batchModal) return;
+    // Para subcategoría, el valor real es batchValue (el ID de la subcategoría)
+    const value = batchValue || null;
+    setIsBatchLoading(true);
+    setBatchError(null);
+    try {
+      await batchAction(batchModal, [...selectedIds], value);
+      setSelectedIds(new Set());
+      setBatchModal(null);
+    } catch (e: any) {
+      setBatchError(e?.message ?? 'Error al ejecutar la acción.');
+    } finally {
+      setIsBatchLoading(false);
+    }
+  };
+
+  const handleBatchDeleteConfirm = async () => {
+    setIsBatchLoading(true);
+    setBatchError(null);
+    try {
+      await batchAction('delete', [...selectedIds], null);
+      setSelectedIds(new Set());
+      setBatchModal(null);
+    } catch (e: any) {
+      setBatchError(e?.message ?? 'Error al eliminar.');
+    } finally {
+      setIsBatchLoading(false);
+    }
+  };
+
+  // Subcategorías disponibles para el batch de subcategoría
+  const batchSubcategoryParentCat = categories.find(c => String(c.id) === String(batchSubCategoryForCat));
+  const batchSubcategories = batchSubcategoryParentCat?.subcategories ?? [];
 
   // ─── Ordenamiento de columnas ───────────────
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -68,6 +142,7 @@ export const CatalogPage: React.FC = () => {
   // Form State
   const [formData, setFormData] = useState<Partial<Product>>({
     code: '',
+    codeType: 'qr',
     name: '',
     categoryId: '',
     dimensions: { height: 0, width: 0, depth: 0 },
@@ -423,6 +498,7 @@ export const CatalogPage: React.FC = () => {
       setEditingId(product.id);
       setFormData({
         ...product,
+        codeType: product.codeType || 'qr',
         dimensions: product.dimensions ? { ...product.dimensions } : { height: 0, width: 0, depth: 0 },
         costs: Array.isArray(product.costs) ? [...product.costs] : (product.costs ? (typeof product.costs === 'object' ? Object.values(product.costs) : [product.costs]) : [0]),
         prices: Array.isArray(product.prices) ? [...product.prices] : (product.prices ? (typeof product.prices === 'object' ? Object.values(product.prices) : [product.prices]) : [0]),
@@ -434,6 +510,7 @@ export const CatalogPage: React.FC = () => {
       setEditingId(null);
       setFormData({
         code: '',
+        codeType: 'qr',
         name: '',
         categoryId: '',
         dimensions: { height: 0, width: 0, depth: 0 },
@@ -468,6 +545,7 @@ export const CatalogPage: React.FC = () => {
     const productToSave: Product = {
       id: editingId || undefined,
       code: formData.code,
+      codeType: formData.codeType || 'qr',
       name: formData.name,
       categoryId: formData.categoryId,
       dimensions: {
@@ -528,6 +606,26 @@ export const CatalogPage: React.FC = () => {
         link.click();
       }
     }
+  };
+
+
+  /** Maneja el resultado del escáner en la barra de búsqueda */
+  const handleSearchScan = (code: string, _type: ScanType) => {
+    setSearchTerm(code);
+  };
+
+  /** Maneja el resultado del escáner dentro del formulario:
+   *  - Rellena el código
+   *  - Establece el codeType según si se escaneó QR o barcode
+   */
+  const handleFormScan = (code: string, type: ScanType) => {
+    setFormData(prev => ({ ...prev, code, codeType: type }));
+  };
+
+  const handleDownloadBarcode = (productId: string, code: string) => {
+    const handle = barcodeRefs.current[productId];
+    const svgEl = handle?.getSvgElement();
+    if (svgEl) downloadBarcodeAsPng(svgEl, `barcode-${code}`);
   };
 
   return (
@@ -730,8 +828,20 @@ export const CatalogPage: React.FC = () => {
                   <Table>
                   <TableHeader>
                     <TableRow>
+                      {/* Checkbox seleccionar todos */}
+                      <TableHead className="w-10 pr-0">
+                        <button
+                          onClick={toggleSelectAll}
+                          className="text-slate-400 hover:text-blue-600 transition-colors"
+                          title={selectedIds.size === sortedProducts.length && sortedProducts.length > 0 ? 'Deseleccionar todos' : 'Seleccionar todos'}
+                        >
+                          {selectedIds.size === sortedProducts.length && sortedProducts.length > 0
+                            ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                            : <Square className="w-4 h-4" />}
+                        </button>
+                      </TableHead>
                       <TableHead>Código</TableHead>
-                      <TableHead>QR</TableHead>
+                      <TableHead>Códigos</TableHead>
                       <TableHead
                         onClick={() => handleSort('name')}
                         className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
@@ -777,27 +887,62 @@ export const CatalogPage: React.FC = () => {
                       const dims = product.dimensions || { height: 0, width: 0, depth: 0 };
                       const cbm = (dims.height * dims.width * dims.depth) / 1000000;
                       
+                      const isSelected = selectedIds.has(String(product.id));
                       return (
-                        <TableRow key={product.id}>
+                        <TableRow key={product.id} className={isSelected ? 'bg-blue-50/70' : ''}>
+                          {/* Checkbox individual */}
+                          <TableCell className="pr-0 w-10">
+                            <button
+                              onClick={() => toggleSelectOne(String(product.id))}
+                              className="text-slate-400 hover:text-blue-600 transition-colors"
+                            >
+                              {isSelected
+                                ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                                : <Square className="w-4 h-4" />}
+                            </button>
+                          </TableCell>
                           <TableCell className="font-mono text-sm text-blue-600 font-medium">{product.code}</TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2 group/qr">
-                              <div className="bg-white p-1 rounded border border-slate-200 shadow-sm">
-                                <QRCodeCanvas 
-                                  id={`qr-${product.id}`}
-                                  value={product.code} 
-                                  size={40} 
-                                  level="L" 
-                                />
+                            {(product.codeType ?? 'qr') === 'barcode' ? (
+                              /* ── Código de Barras ── */
+                              <div className="flex items-center gap-2 group/bc">
+                                <div className="bg-white rounded border border-violet-200 shadow-sm overflow-hidden" title={`Barcode: ${product.code}`}>
+                                  <BarcodeDisplay
+                                    ref={(handle) => { barcodeRefs.current[product.id] = handle; }}
+                                    value={product.code}
+                                    width={64}
+                                    height={30}
+                                    displayValue={false}
+                                  />
+                                </div>
+                                <button
+                                  onClick={() => handleDownloadBarcode(product.id, product.code)}
+                                  className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-md transition-all opacity-0 group-hover/bc:opacity-100"
+                                  title="Descargar código de barras"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </button>
                               </div>
-                              <button
-                                onClick={() => handleDownloadQR(product.id, product.code)}
-                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all opacity-0 group-hover/qr:opacity-100"
-                                title="Descargar QR"
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
-                            </div>
+                            ) : (
+                              /* ── Código QR ── */
+                              <div className="flex items-center gap-2 group/qr">
+                                <div className="bg-white p-1 rounded border border-slate-200 shadow-sm" title={`QR: ${product.code}`}>
+                                  <QRCodeCanvas
+                                    id={`qr-${product.id}`}
+                                    value={product.code}
+                                    size={40}
+                                    level="L"
+                                  />
+                                </div>
+                                <button
+                                  onClick={() => handleDownloadQR(product.id, product.code)}
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all opacity-0 group-hover/qr:opacity-100"
+                                  title="Descargar QR"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-3">
@@ -829,13 +974,13 @@ export const CatalogPage: React.FC = () => {
                               );
                             })()}
                           </TableCell>
-                          <TableCell className="text-slate-600 font-mono text-sm">{cbm.toFixed(4)}</TableCell>
+                          <TableCell className="text-slate-600 font-mono text-sm">{(Number(cbm) || 0).toFixed(4)}</TableCell>
                           <TableCell className="text-slate-600 font-mono text-sm">
-                            ${Number(
+                            ${(Number(
                               Array.isArray(product.prices) 
                                 ? (product.prices[0] || 0) 
                                 : (product.prices ? (typeof product.prices === 'object' ? Object.values(product.prices)[0] : product.prices) : 0)
-                            ).toFixed(2)}
+                            ) || 0).toFixed(2)}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -875,7 +1020,7 @@ export const CatalogPage: React.FC = () => {
                     })}
                     {sortedProducts.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="py-12 text-center text-slate-500">
+                        <TableCell colSpan={8} className="py-12 text-center text-slate-500">
                           No se encontraron productos.
                         </TableCell>
                       </TableRow>
@@ -884,10 +1029,64 @@ export const CatalogPage: React.FC = () => {
                 </Table>
                 </div>
               </div>
+
+            )}
+
+            {/* ─── Barra de acción flotante (batch) ────────────────────────── */}
+            {selectedIds.size > 0 && (
+              <div className="sticky bottom-4 mt-4 mx-2 bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700 p-3 flex flex-col sm:flex-row items-center gap-3 z-30 animate-in slide-in-from-bottom-4 duration-200">
+                <div className="flex items-center gap-2 text-sm font-medium shrink-0">
+                  <CheckSquare className="w-4 h-4 text-blue-400" />
+                  <span className="text-blue-300 font-bold">{selectedIds.size}</span>
+                  <span className="text-slate-300">producto{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}</span>
+                  <button
+                    onClick={() => setSelectedIds(new Set())}
+                    className="ml-2 text-slate-400 hover:text-white transition-colors text-xs underline underline-offset-2"
+                  >Deseleccionar todo</button>
+                </div>
+                <div className="flex flex-wrap gap-2 sm:ml-auto">
+                  <button
+                    onClick={() => lockBatchDelete.execute(() => handleBatchOpen('delete'))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/40 text-red-300 hover:text-red-100 text-xs font-medium transition-all border border-red-600/30"
+                    title="Eliminar seleccionados"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                  </button>
+                  <button
+                    onClick={() => lockBatch.execute(() => handleBatchOpen('setCategory'))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white text-xs font-medium transition-all border border-slate-600"
+                    title="Asignar categoría"
+                  >
+                    <Tag className="w-3.5 h-3.5" /> Categoría
+                  </button>
+                  <button
+                    onClick={() => lockBatch.execute(() => handleBatchOpen('setSubcategory'))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white text-xs font-medium transition-all border border-slate-600"
+                    title="Asignar sub-categoría"
+                  >
+                    <Layers className="w-3.5 h-3.5" /> Sub-cat
+                  </button>
+                  <button
+                    onClick={() => lockBatch.execute(() => handleBatchOpen('setProvider'))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white text-xs font-medium transition-all border border-slate-600"
+                    title="Asignar proveedor"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" /> Proveedor
+                  </button>
+                  <button
+                    onClick={() => lockBatch.execute(() => handleBatchOpen('addWarehouse'))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white text-xs font-medium transition-all border border-slate-600"
+                    title="Habilitar en almacén"
+                  >
+                    <Building2 className="w-3.5 h-3.5" /> Almacén
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
       )}
+
 
       {activeTab === 'CATEGORIES' && (
         <div className="animate-in fade-in slide-in-from-left-4 duration-300">
@@ -918,14 +1117,93 @@ export const CatalogPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
               {/* Columna Izquierda */}
               <div className="space-y-5">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Código</label>
-                  <Input 
-                    placeholder="Ej: PROD-001" 
+                {/* ── Campo Código: un solo código con tipo seleccionable ── */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-semibold text-slate-700">Código del Producto</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsFormScannerOpen(true)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-900 text-white text-xs font-medium transition-colors"
+                      title="Escanear QR o código de barras"
+                    >
+                      <ScanLine className="w-3.5 h-3.5" />
+                      Escanear
+                    </button>
+                  </div>
+
+                  {/* Input del código */}
+                  <Input
+                    placeholder="Ej: PROD-001 o 7502213456789"
                     value={formData.code || ''}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                   />
+
+                  {/* Selector de tipo: QR o Código de Barras */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, codeType: 'qr' })}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                        formData.codeType !== 'barcode'
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                          : 'bg-white border-slate-300 text-slate-600 hover:border-blue-400'
+                      }`}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 17h.01M17 14h.01"/>
+                      </svg>
+                      Código QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, codeType: 'barcode' })}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                        formData.codeType === 'barcode'
+                          ? 'bg-violet-600 border-violet-600 text-white shadow-sm'
+                          : 'bg-white border-slate-300 text-slate-600 hover:border-violet-400'
+                      }`}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 5v14M7 5v14M11 5v14M15 5v14M19 5v14M5 5v14M9 5v14M13 5v14M17 5v14M21 5v14"/>
+                      </svg>
+                      Código de Barras
+                    </button>
+                  </div>
+
+                  {/* Preview en tiempo real según tipo seleccionado */}
+                  {formData.code && formData.code.trim() !== '' && (
+                    <div className="flex justify-center pt-1">
+                      <div className="bg-white rounded-lg border border-slate-200 px-4 py-3 shadow-sm inline-flex flex-col items-center gap-1">
+                        {formData.codeType === 'barcode' ? (
+                          <BarcodeDisplay
+                            value={formData.code}
+                            width={180}
+                            height={45}
+                            displayValue={true}
+                            fontSize={9}
+                          />
+                        ) : (
+                          <QRCodeCanvas
+                            value={formData.code}
+                            size={80}
+                            level="M"
+                          />
+                        )}
+                        <span className="text-xs text-slate-400 mt-1">
+                          {formData.codeType === 'barcode' ? 'Código de Barras' : 'Código QR'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {(!formData.code || formData.code.trim() === '') && (
+                    <p className="text-xs text-slate-400 text-center">
+                      Escribe o escanea un código para ver la vista previa
+                    </p>
+                  )}
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Nombre</label>
                   <Input 
@@ -1204,17 +1482,248 @@ export const CatalogPage: React.FC = () => {
       )}
 
 
-      {/* Modal de Escáner QR */}
+      {/* Modal de Escáner unificado (búsqueda) */}
       <QRScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
-        onScan={(code) => setSearchTerm(code)}
+        onScan={handleSearchScan}
+        title="Buscar por código"
+      />
+
+      {/* Modal de Escáner dentro del formulario */}
+      <QRScannerModal
+        isOpen={isFormScannerOpen}
+        onClose={() => setIsFormScannerOpen(false)}
+        onScan={handleFormScan}
+        title="Escanear para el producto"
       />
 
       {/* Modales de Llave de Acceso */}
       <LockModal {...lockEdit.lockModalProps} />
       <LockModal {...lockDelete.lockModalProps} />
       <LockModal {...lockExport.lockModalProps} />
+      <LockModal {...lockBatch.lockModalProps} />
+      <LockModal {...lockBatchDelete.lockModalProps} />
+
+      {/* ─── Modales de Acciones por Lote ──────────────────────────────────── */}
+      {batchModal !== null && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl border border-slate-200">
+
+            {/* ── MODAL ELIMINAR ── */}
+            {batchModal === 'delete' && (
+              <>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center shrink-0">
+                    <Trash2 className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Eliminar en lote</h2>
+                    <p className="text-sm text-slate-500">{selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 max-h-40 overflow-y-auto">
+                  <p className="text-xs font-semibold text-red-700 mb-2 uppercase tracking-wide">Productos a eliminar:</p>
+                  <ul className="space-y-1">
+                    {[...selectedIds].map(id => {
+                      const p = products.find(pr => String(pr.id) === id);
+                      return p ? (
+                        <li key={id} className="text-sm text-red-800 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                          <span className="font-medium">{p.code}</span> — {p.name}
+                        </li>
+                      ) : null;
+                    })}
+                  </ul>
+                </div>
+                <p className="text-sm text-slate-600 mb-6">
+                  Esta acción es <strong>irreversible</strong> y eliminará todo el historial, stock e inventario asociado a estos productos.
+                </p>
+                {batchError && <p className="text-sm text-red-600 mb-4">{batchError}</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setBatchModal(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium text-sm transition-all">Cancelar</button>
+                  <button
+                    onClick={handleBatchDeleteConfirm}
+                    disabled={isBatchLoading}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {isBatchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    Sí, Eliminar
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── MODAL ASIGNAR CATEGORÍA ── */}
+            {batchModal === 'setCategory' && (
+              <>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center shrink-0">
+                    <Tag className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Asignar Categoría</h2>
+                    <p className="text-sm text-slate-500">{selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Selecciona la categoría a asignar</label>
+                <select
+                  value={batchValue}
+                  onChange={e => setBatchValue(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 mb-6"
+                >
+                  <option value="">-- Selecciona una categoría --</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name} ({cat.code})</option>
+                  ))}
+                </select>
+                {batchError && <p className="text-sm text-red-600 mb-4">{batchError}</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setBatchModal(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium text-sm transition-all">Cancelar</button>
+                  <button
+                    onClick={handleBatchConfirm}
+                    disabled={isBatchLoading || !batchValue}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {isBatchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Aplicar a {selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── MODAL ASIGNAR SUB-CATEGORÍA ── */}
+            {batchModal === 'setSubcategory' && (
+              <>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center shrink-0">
+                    <Layers className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Asignar Sub-Categoría</h2>
+                    <p className="text-sm text-slate-500">{selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Paso 1: Selecciona la categoría padre</label>
+                <select
+                  value={batchSubCategoryForCat}
+                  onChange={e => { setBatchSubCategoryForCat(e.target.value); setBatchValue(''); }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 mb-4"
+                >
+                  <option value="">-- Selecciona una categoría --</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Paso 2: Selecciona la sub-categoría</label>
+                <select
+                  value={batchValue}
+                  onChange={e => setBatchValue(e.target.value)}
+                  disabled={batchSubcategories.length === 0}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 mb-6 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                >
+                  <option value="">{batchSubcategories.length === 0 ? (batchSubCategoryForCat ? 'Sin sub-categorías disponibles' : 'Selecciona la categoría primero') : '-- Selecciona sub-categoría --'}</option>
+                  {batchSubcategories.map(sub => (
+                    <option key={sub.id} value={String(sub.id)}>{sub.name}</option>
+                  ))}
+                </select>
+                {batchError && <p className="text-sm text-red-600 mb-4">{batchError}</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setBatchModal(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium text-sm transition-all">Cancelar</button>
+                  <button
+                    onClick={handleBatchConfirm}
+                    disabled={isBatchLoading || !batchValue}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {isBatchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Aplicar a {selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── MODAL ASIGNAR PROVEEDOR ── */}
+            {batchModal === 'setProvider' && (
+              <>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center shrink-0">
+                    <UserCheck className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Asignar Proveedor</h2>
+                    <p className="text-sm text-slate-500">{selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Selecciona el proveedor a asignar</label>
+                <select
+                  value={batchValue}
+                  onChange={e => setBatchValue(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 mb-6"
+                >
+                  <option value="">-- Selecciona un proveedor --</option>
+                  {providers.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                {batchError && <p className="text-sm text-red-600 mb-4">{batchError}</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setBatchModal(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium text-sm transition-all">Cancelar</button>
+                  <button
+                    onClick={handleBatchConfirm}
+                    disabled={isBatchLoading || !batchValue}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {isBatchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Aplicar a {selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── MODAL HABILITAR EN ALMACÉN ── */}
+            {batchModal === 'addWarehouse' && (
+              <>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center shrink-0">
+                    <Building2 className="w-6 h-6 text-amber-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Habilitar en Almacén</h2>
+                    <p className="text-sm text-slate-500">{selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-xs text-amber-800">
+                  ℹ️ El almacén seleccionado se <strong>añade</strong> a los ya asignados en cada producto sin eliminar los existentes.
+                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Selecciona el almacén</label>
+                <select
+                  value={batchValue}
+                  onChange={e => setBatchValue(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 mb-6"
+                >
+                  <option value="">-- Selecciona un almacén --</option>
+                  {warehouses.map(wh => (
+                    <option key={wh.id} value={wh.id}>{wh.name}</option>
+                  ))}
+                </select>
+                {batchError && <p className="text-sm text-red-600 mb-4">{batchError}</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setBatchModal(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium text-sm transition-all">Cancelar</button>
+                  <button
+                    onClick={handleBatchConfirm}
+                    disabled={isBatchLoading || !batchValue}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-medium text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {isBatchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Habilitar en {selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''}
+                  </button>
+                </div>
+              </>
+            )}
+
+          </div>
+        </div>
+      )}
 
       {/* Modal de resultados de importación */}
       <ImportResultModal

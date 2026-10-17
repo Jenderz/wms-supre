@@ -6,10 +6,10 @@ declare(strict_types=1);
 // ============================================================
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Dotenv\Dotenv;
-
-$dotenv = Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->load();
+if (file_exists(__DIR__ . '/../.env')) {
+    $dotenv = \Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
+    $dotenv->safeLoad();
+}
 
 // ============================================================
 // CORS — Debe ejecutarse ANTES de cualquier otra lógica
@@ -50,12 +50,14 @@ use App\Controllers\ProviderController;
 use App\Controllers\ProductController;
 use App\Controllers\WarehouseController;
 use App\Controllers\WarehouseSpaceController;
+use App\Controllers\SpaceGroupController;
 use App\Controllers\SpaceTypeController;
 use App\Controllers\StockController;
 use App\Controllers\PickingLotController;
 use App\Controllers\DisincorporationController;
 use App\Controllers\AccessKeyController;
 use App\Controllers\StockMovementController;
+use App\Controllers\DispatchController;
 use App\Middleware\AuthMiddleware;
 use App\Helpers\Response;
 
@@ -98,11 +100,12 @@ try {
     route('DELETE', '/providers/{id}',  fn($params) => (new ProviderController())->destroy($params['id']));
 
     // --- Products ---
-    route('GET',    '/products',        fn() => (new ProductController())->index());
-    route('GET',    '/products/{id}',   fn($params) => (new ProductController())->show($params['id']));
-    route('POST',   '/products',        fn() => (new ProductController())->store());
-    route('PUT',    '/products/{id}',   fn($params) => (new ProductController())->update($params['id']));
-    route('DELETE', '/products/{id}',   fn($params) => (new ProductController())->destroy($params['id']));
+    route('GET',    '/products',              fn() => (new ProductController())->index());
+    route('GET',    '/products/{id}',         fn($params) => (new ProductController())->show($params['id']));
+    route('POST',   '/products/batch',        fn() => (new ProductController())->batchAction());
+    route('POST',   '/products',              fn() => (new ProductController())->store());
+    route('PUT',    '/products/{id}',         fn($params) => (new ProductController())->update($params['id']));
+    route('DELETE', '/products/{id}',         fn($params) => (new ProductController())->destroy($params['id']));
 
     // --- Warehouses ---
     route('GET',    '/warehouses',          fn() => (new WarehouseController())->index());
@@ -121,6 +124,12 @@ try {
     route('POST',   '/warehouse-spaces',       fn() => (new WarehouseSpaceController())->store());
     route('PUT',    '/warehouse-spaces/{id}',  fn($params) => (new WarehouseSpaceController())->update($params['id']));
     route('DELETE', '/warehouse-spaces/{id}',  fn($params) => (new WarehouseSpaceController())->destroy($params['id']));
+
+    // --- Space Groups ---
+    route('GET',    '/space-groups',           fn() => (new SpaceGroupController())->index());
+    route('POST',   '/space-groups',           fn() => (new SpaceGroupController())->store());
+    route('PUT',    '/space-groups/{id}',      fn($params) => (new SpaceGroupController())->update($params['id']));
+    route('DELETE', '/space-groups/{id}',      fn($params) => (new SpaceGroupController())->destroy($params['id']));
 
     // --- Stock ---
     route('GET',    '/stock',           fn() => (new StockController())->index());
@@ -153,6 +162,16 @@ try {
     route('DELETE', '/locks/{id}',           fn($params) => (new AccessKeyController())->destroy($params['id']));
     route('POST',   '/locks/verify',         fn() => (new AccessKeyController())->verify());
 
+    // --- Dispatches ---
+    route('GET',    '/dispatches/sync-stock', fn() => (new DispatchController())->syncStock());
+    route('POST',   '/dispatches/sync-stock', fn() => (new DispatchController())->syncStock());
+    route('GET',    '/dispatches',           fn() => (new DispatchController())->index());
+    route('POST',   '/dispatches',           fn() => (new DispatchController())->store($user));
+    route('GET',    '/dispatches/{id}',      fn($params) => (new DispatchController())->show($params['id']));
+    route('PUT',    '/dispatches/{id}',      fn($params) => (new DispatchController())->update($params['id']));
+    route('PATCH',  '/dispatches/{id}/status', fn($params) => (new DispatchController())->updateStatus($params['id'], $user));
+    route('DELETE', '/dispatches/{id}',      fn($params) => (new DispatchController())->destroy($params['id']));
+
     // Si ninguna ruta hizo match
     Response::json(['error' => 'Endpoint no encontrado.'], 404);
 
@@ -160,7 +179,12 @@ try {
     Response::json(['error' => $e->getMessage()], 401);
 } catch (\Throwable $e) {
     error_log($e->getMessage());
-    Response::json(['error' => 'Error interno del servidor.'], 500);
+    Response::json([
+        'error' => 'Error interno del servidor.',
+        'debug_message' => $e->getMessage(),
+        'debug_file' => $e->getFile(),
+        'debug_line' => $e->getLine()
+    ], 500);
 }
 
 // ============================================================

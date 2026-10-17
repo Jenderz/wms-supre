@@ -36,10 +36,12 @@ class DisincorporationController
     public function store(object $authUser): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
-        if (empty($data['storeId'])) {
-            Response::error('storeId es requerido.', 400);
+        $warehouseId = $data['warehouseId'] ?? $data['storeId'] ?? null;
+        if (empty($warehouseId)) {
+            Response::error('warehouseId es requerido.', 400);
             return;
         }
+        $data['warehouseId'] = $warehouseId;
         $data['createdBy'] = $authUser->user_id;
         $id = $this->model->create($data);
         Response::created(['id' => $id]);
@@ -62,25 +64,30 @@ class DisincorporationController
 
         $stockModel    = new Stock();
         $movementModel = new StockMovement();
+        $warehouseId   = (int) ($record['warehouseId'] ?? $record['storeId']);
 
         foreach ($record['items'] as $item) {
+            $spaceId = isset($item['warehouseSpaceId']) && $item['warehouseSpaceId'] !== null
+                ? (int) $item['warehouseSpaceId']
+                : (isset($item['locationId']) ? (int) $item['locationId'] : null);
+
             $stockModel->adjustQuantity(
                 (int) $item['productId'],
-                (int) $record['storeId'],
-                isset($item['locationId']) ? (int) $item['locationId'] : null,
+                $warehouseId,
+                $spaceId,
                 -(float) $item['quantity'] // Resta stock
             );
 
             $movementModel->create([
-                'productId'   => $item['productId'],
-                'storeId'     => $record['storeId'],
-                'locationId'  => $item['locationId'] ?? null,
-                'type'        => 'OUT',
-                'reason'      => 'DISINCORPORATION',
-                'quantity'    => $item['quantity'],
-                'referenceId' => (int) $id,
-                'createdBy'   => $authUser->user_id,
-                'notes'       => $item['reason'] ?? 'Desincorporación aprobada',
+                'productId'        => $item['productId'],
+                'warehouseId'      => $warehouseId,
+                'warehouseSpaceId' => $spaceId,
+                'type'             => 'OUT',
+                'reason'           => 'DISINCORPORATION',
+                'quantity'         => $item['quantity'],
+                'referenceId'      => (int) $id,
+                'createdBy'        => $authUser->user_id,
+                'notes'            => $item['reason'] ?? 'Desincorporación aprobada',
             ]);
         }
 

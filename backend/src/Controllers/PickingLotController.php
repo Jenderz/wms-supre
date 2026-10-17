@@ -35,8 +35,8 @@ class PickingLotController
     public function store(): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
-        if (empty($data['lotNumber']) || empty($data['storeId']) || empty($data['createdBy'])) {
-            Response::error('lotNumber, storeId y createdBy son requeridos.', 400);
+        if (empty($data['lotNumber']) || empty($data['warehouseId']) || empty($data['createdBy'])) {
+            Response::error('lotNumber, warehouseId y createdBy son requeridos.', 400);
             return;
         }
         $id = $this->model->create($data);

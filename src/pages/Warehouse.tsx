@@ -24,21 +24,23 @@ const Warehouse: React.FC = () => {
     upsertStock,
   } = useWarehouse();
 
-  const [initialSpaceFilter, setInitialSpaceFilter] = useState<string>('');
-
-  // Leer el filtro de espacio guardado desde el módulo de Infraestructura
-  useEffect(() => {
+  // Leer el filtro guardado desde el módulo de Infraestructura de forma síncrona
+  const [initialFilters] = useState<{ spaceId: string; warehouseId: string }>(() => {
     const stored = sessionStorage.getItem('wms_inventory_filter');
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
         if (parsed.tab === 'INVENTORY') {
-          setInitialSpaceFilter(parsed.spaceId || '');
+          sessionStorage.removeItem('wms_inventory_filter');
+          return {
+            spaceId: parsed.spaceId || '',
+            warehouseId: parsed.warehouseId || '',
+          };
         }
-        sessionStorage.removeItem('wms_inventory_filter');
       } catch {}
     }
-  }, []);
+    return { spaceId: '', warehouseId: '' };
+  });
 
   const filteredStock = stock.filter(s => {
     if (user?.role === 'DEPOSITO' && user.assignedWarehouses && user.assignedWarehouses.length > 0) {
@@ -86,7 +88,8 @@ const Warehouse: React.FC = () => {
       updateProduct={updateProduct}
       assignSpace={assignSpace}
       upsertStock={upsertStock}
-      initialSpaceFilter={initialSpaceFilter}
+      initialSpaceFilter={initialFilters.spaceId}
+      initialWarehouseFilter={initialFilters.warehouseId}
     />
   );
 };

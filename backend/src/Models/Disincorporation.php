@@ -18,7 +18,7 @@ class Disincorporation
     public function getAll(): array
     {
         $rows = $this->db->query(
-            "SELECT d.id, d.store_id as storeId, d.status, d.description,
+            "SELECT d.id, d.warehouse_id as warehouseId, d.status, d.description,
                     d.created_at as createdAt, d.created_by as createdBy,
                     d.approved_at as approvedAt, d.approved_by as approvedBy
              FROM disincorporations d ORDER BY d.created_at DESC"
@@ -32,7 +32,7 @@ class Disincorporation
     public function findById(int $id): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT id, store_id as storeId, status, description, created_at as createdAt,
+            "SELECT id, warehouse_id as warehouseId, status, description, created_at as createdAt,
                     created_by as createdBy, approved_at as approvedAt, approved_by as approvedBy
              FROM disincorporations WHERE id = :id"
         );
@@ -48,13 +48,13 @@ class Disincorporation
         $this->db->beginTransaction();
         try {
             $stmt = $this->db->prepare(
-                "INSERT INTO disincorporations (store_id, description, status, created_by)
-                 VALUES (:store_id, :description, 'DRAFT', :created_by)"
+                "INSERT INTO disincorporations (warehouse_id, description, status, created_by)
+                 VALUES (:warehouse_id, :description, 'DRAFT', :created_by)"
             );
             $stmt->execute([
-                ':store_id'    => $data['storeId'],
-                ':description' => $data['description'] ?? null,
-                ':created_by'  => $data['createdBy'],
+                ':warehouse_id' => $data['warehouseId'] ?? $data['storeId'] ?? null,
+                ':description'  => $data['description'] ?? null,
+                ':created_by'   => $data['createdBy'],
             ]);
             $id = (int) $this->db->lastInsertId();
             $this->syncItems($id, $data['items'] ?? []);
@@ -76,7 +76,7 @@ class Disincorporation
     private function getItems(int $disId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT id, product_id as productId, location_id as locationId,
+            "SELECT id, product_id as productId, warehouse_space_id as warehouseSpaceId,
                     quantity, reason, notes
              FROM disincorporation_items WHERE disincorporation_id = :did"
         );
@@ -89,14 +89,14 @@ class Disincorporation
         $this->db->prepare("DELETE FROM disincorporation_items WHERE disincorporation_id = :did")->execute([':did' => $disId]);
         if (empty($items)) return;
         $stmt = $this->db->prepare(
-            "INSERT INTO disincorporation_items (disincorporation_id, product_id, location_id, quantity, reason, notes)
-             VALUES (:did, :pid, :lid, :qty, :reason, :notes)"
+            "INSERT INTO disincorporation_items (disincorporation_id, product_id, warehouse_space_id, quantity, reason, notes)
+             VALUES (:did, :pid, :wsid, :qty, :reason, :notes)"
         );
         foreach ($items as $item) {
             $stmt->execute([
                 ':did'    => $disId,
                 ':pid'    => $item['productId'],
-                ':lid'    => $item['locationId'] ?? null,
+                ':wsid'   => $item['warehouseSpaceId'] ?? $item['locationId'] ?? null,
                 ':qty'    => $item['quantity'],
                 ':reason' => $item['reason'] ?? null,
                 ':notes'  => $item['notes'] ?? null,

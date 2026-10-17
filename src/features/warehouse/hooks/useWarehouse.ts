@@ -103,6 +103,8 @@ export const useWarehouse = () => {
     warehouseSpaceId: string | null;
     quantity: number;
     minStock: number;
+    minStockDispatch?: number;
+    deductFromUnassigned?: boolean;
   }) => {
     await StockApi.upsert(payload);
     await loadData();

@@ -133,6 +133,11 @@ export const ProductApi = {
   create:  (data: unknown)           => post<{ id: number }>('/products', data),
   update:  (id: string | number, data: unknown) => put<unknown>(`/products/${id}`, data),
   remove:  (id: string | number)     => del<void>(`/products/${id}`),
+  batch: (data: {
+    action: 'delete' | 'setCategory' | 'setSubcategory' | 'setProvider' | 'addWarehouse';
+    productIds: string[];
+    value?: string | null;
+  }) => post<{ message: string; affected: number }>('/products/batch', data),
 };
 
 // ===========================================================
@@ -164,6 +169,17 @@ export const WarehouseSpaceApi = {
   create:  (data: unknown)           => post<{ id: number }>('/warehouse-spaces', data),
   update:  (id: string | number, data: unknown) => put<unknown>(`/warehouse-spaces/${id}`, data),
   remove:  (id: string | number)     => del<void>(`/warehouse-spaces/${id}`),
+};
+
+// ===========================================================
+// Space Groups
+// ===========================================================
+export const SpaceGroupApi = {
+  getAll:  (warehouseId?: string | number) =>
+    get<unknown[]>(warehouseId ? `/space-groups?warehouseId=${warehouseId}` : '/space-groups'),
+  create:  (data: unknown)           => post<{ id: number }>('/space-groups', data),
+  update:  (id: string | number, data: unknown) => put<unknown>(`/space-groups/${id}`, data),
+  remove:  (id: string | number)     => del<void>(`/space-groups/${id}`),
 };
 
 // ===========================================================
@@ -218,6 +234,19 @@ export const LockApi = {
 };
 
 // ===========================================================
+// Dispatch Orders (Despachos)
+// ===========================================================
+export const DispatchApi = {
+  getAll:  ()                                    => get<unknown[]>('/dispatches'),
+  getOne:  (id: string | number)                 => get<unknown>(`/dispatches/${id}`),
+  create:  (data: unknown)                       => post<{ id: number }>('/dispatches', data),
+  update:  (id: string | number, data: unknown)  => put<unknown>(`/dispatches/${id}`, data),
+  remove:  (id: string | number)                 => del<void>(`/dispatches/${id}`),
+  updateStatus: (id: string | number, status: string) =>
+    patch<unknown>(`/dispatches/${id}/status`, { status }),
+};
+
+// ===========================================================
 // Token helpers (usados por AuthContext)
 // ===========================================================
 export const TokenService = {
@@ -225,3 +254,4 @@ export const TokenService = {
   get:     ()              => localStorage.getItem(TOKEN_KEY),
   remove:  ()              => localStorage.removeItem(TOKEN_KEY),
 };
+

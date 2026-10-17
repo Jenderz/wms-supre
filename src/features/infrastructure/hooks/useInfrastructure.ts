@@ -44,17 +44,48 @@ export const useInfrastructure = () => {
     await loadData();
   };
 
-  const saveWarehouseSpace = async (space: WarehouseSpace) => {
+  const saveWarehouseSpace = async (space: WarehouseSpace): Promise<{ id: string } | undefined> => {
     if (space.id && !String(space.id).startsWith('new')) {
        await WarehouseSpaceApi.update(space.id, space);
+       await loadData();
+       return { id: String(space.id) };
     } else {
-       await WarehouseSpaceApi.create(space);
+       const result = await WarehouseSpaceApi.create(space) as { id: number };
+       await loadData();
+       return result ? { id: String(result.id) } : undefined;
     }
-    await loadData();
   };
 
   const deleteWarehouseSpace = async (id: string) => {
     await WarehouseSpaceApi.remove(id);
+    await loadData();
+  };
+
+  /**
+   * Importación en lote: guarda todos los espacios sin recargar el estado
+   * entre cada operación (evita race conditions). Hace un único loadData()
+   * al finalizar todo el lote.
+   */
+  const batchSaveWarehouseSpaces = async (spaces: WarehouseSpace[]): Promise<void> => {
+    for (const space of spaces) {
+      // Un id numérico real → UPDATE; sin id o undefined → CREATE
+      if (space.id && !String(space.id).startsWith('new')) {
+        await WarehouseSpaceApi.update(space.id, space);
+      } else {
+        await WarehouseSpaceApi.create(space);
+      }
+    }
+    // Una sola recarga al terminar el lote completo
+    await loadData();
+  };
+
+  const bulkDeleteWarehouseSpaces = async (ids: string[]) => {
+    await Promise.all(ids.map(id => WarehouseSpaceApi.remove(id)));
+    await loadData();
+  };
+
+  const bulkUpdateWarehouseSpaces = async (ids: string[], data: Partial<WarehouseSpace>) => {
+    await Promise.all(ids.map(id => WarehouseSpaceApi.update(id, data)));
     await loadData();
   };
 
@@ -81,7 +112,10 @@ export const useInfrastructure = () => {
     saveWarehouse,
     deleteWarehouse,
     saveWarehouseSpace,
+    batchSaveWarehouseSpaces,
     deleteWarehouseSpace,
+    bulkDeleteWarehouseSpaces,
+    bulkUpdateWarehouseSpaces,
     saveSpaceType,
     updateSpaceType,
     deleteSpaceType,

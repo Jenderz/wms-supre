@@ -74,6 +74,15 @@ export const useCatalog = () => {
     await loadData();
   };
 
+  const batchAction = async (
+    action: 'delete' | 'setCategory' | 'setSubcategory' | 'setProvider' | 'addWarehouse',
+    productIds: string[],
+    value?: string | null
+  ) => {
+    await ProductApi.batch({ action, productIds, value });
+    await loadData();
+  };
+
   const saveCategory = async (category: Category) => {
     if (category.id) {
       await CategoryApi.update(category.id, category);
@@ -116,6 +125,7 @@ export const useCatalog = () => {
     saveProduct,
     setAllProducts,
     deleteProduct,
+    batchAction,
     saveCategory,
     deleteCategory,
     getCategoryName,

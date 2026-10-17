@@ -29,8 +29,8 @@ class User
         $stmt->execute([':username' => $username]);
         $row = $stmt->fetch();
         if (!$row) return null;
-        $row['permissions']    = json_decode($row['permissions'] ?? '[]', true);
-        $row['assignedStores'] = $row['assigned_stores']
+        $row['permissions']        = json_decode($row['permissions'] ?? '[]', true);
+        $row['assignedWarehouses'] = $row['assigned_stores']
             ? array_map('intval', explode(',', $row['assigned_stores']))
             : [];
         unset($row['assigned_stores']);
@@ -47,8 +47,8 @@ class User
              GROUP BY u.id"
         );
         return array_map(function ($row) {
-            $row['permissions']    = json_decode($row['permissions'] ?? '[]', true);
-            $row['assignedStores'] = $row['assigned_stores']
+            $row['permissions']        = json_decode($row['permissions'] ?? '[]', true);
+            $row['assignedWarehouses'] = $row['assigned_stores']
                 ? array_map('intval', explode(',', $row['assigned_stores']))
                 : [];
             unset($row['assigned_stores']);
@@ -73,7 +73,7 @@ class User
             ]);
             $id = (int) $this->db->lastInsertId();
 
-            $this->syncStores($id, $data['assignedStores'] ?? []);
+            $this->syncStores($id, $data['assignedWarehouses'] ?? []);
 
             $this->db->commit();
             return $id;
@@ -102,7 +102,7 @@ class User
             $sql .= " WHERE id=:id";
             $this->db->prepare($sql)->execute($fields);
 
-            $this->syncStores($id, $data['assignedStores'] ?? []);
+            $this->syncStores($id, $data['assignedWarehouses'] ?? []);
 
             $this->db->commit();
             return true;

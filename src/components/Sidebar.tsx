@@ -5,18 +5,15 @@ import {
   LayoutDashboard, 
   Package, 
   Building2, 
-  ShoppingCart, 
-  Warehouse, 
+  PackageCheck,
+  ClipboardList, 
   LogOut,
   Trash2,
   Zap,
-  Tags,
-  Activity,
   Settings as SettingsIcon,
-  Shield,
   ChevronDown,
   ChevronRight,
-  ClipboardList
+  Truck
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -60,14 +57,54 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
     { name: 'Almacenes', path: '/infrastructure', icon: Building2, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'], permission: null },
     { name: 'Inventario', path: '/warehouse', icon: ClipboardList, roles: ['ADMIN', 'DEPOSITO', 'COMPRAS'], permission: null },
     {
-      name: 'Operaciones',
-      icon: ShoppingCart,
-      roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'],
+      name: 'Abastecimiento',
+      icon: PackageCheck,
+      roles: ['ADMIN', 'COMPRAS'],
       permission: null,
       subItems: [
-        { name: 'Abastecimiento', path: '/purchasing', roles: ['ADMIN', 'COMPRAS'], permission: null },
-        { name: 'Recepción de Mercancía', path: '/warehouse', roles: ['ADMIN', 'DEPOSITO'], permission: null },
-        { name: 'Desincorporación', path: '/disincorporation', roles: ['ADMIN', 'DESINCORPORACION'], permission: null },
+        { name: 'Lista de Picking', path: '/purchasing/list', roles: ['ADMIN', 'COMPRAS'], permission: null },
+        { name: 'Nuevo Picking', path: '/purchasing/new', roles: ['ADMIN', 'COMPRAS'], permission: null },
+        { name: 'Etiqueta Identificadora', path: '/purchasing/product-label', roles: ['ADMIN', 'COMPRAS'], permission: null },
+        { name: 'Etiqueta QR / Código', path: '/purchasing/code-label', roles: ['ADMIN', 'COMPRAS'], permission: null },
+      ]
+    },
+    {
+      name: 'Desincorporación',
+      path: '/disincorporation',
+      icon: Trash2,
+      roles: ['ADMIN', 'DESINCORPORACION'],
+      permission: null,
+    },
+    {
+      name: 'Despachos',
+      icon: Truck,
+      roles: ['ADMIN', 'DEPOSITO'],
+      permission: null,
+      subItems: [
+        {
+          name: 'Lista de Despachos',
+          path: '/dispatches/list',
+          roles: ['ADMIN', 'DEPOSITO'],
+          permission: null,
+        },
+        {
+          name: 'Crear Directo',
+          path: '/dispatches/new',
+          roles: ['ADMIN', 'DEPOSITO'],
+          permission: null,
+        },
+        {
+          name: 'Detalle',
+          path: '/dispatches/detail',
+          roles: ['ADMIN', 'DEPOSITO'],
+          permission: null,
+        },
+        {
+          name: 'Nota Personalizada',
+          path: '/dispatches/print-note',
+          roles: ['ADMIN', 'DEPOSITO'],
+          permission: null,
+        },
       ]
     },
     {
@@ -87,15 +124,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
     navigate('/login');
   };
 
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    'Análisis': true
-  });
+  const location = useLocation();
+
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => ({
+    'Análisis': true,
+    'Abastecimiento': location.pathname.startsWith('/purchasing'),
+    'Despachos': location.pathname.startsWith('/dispatches'),
+  }));
 
   const toggleExpand = (name: string) => {
     setExpanded(prev => ({ ...prev, [name]: !prev[name] }));
   };
-
-  const location = useLocation();
 
   const isAllowed = (roles: string[], permission: string | null) => {
     if (permission) {
@@ -132,11 +171,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
             if (allowedSubItems.length === 0) return null;
 
             const isExpanded = expanded[item.name];
+            const isGroupActive = allowedSubItems.some(sub => location.pathname === sub.path || location.pathname.startsWith(sub.path + '/'));
             return (
               <div key={item.name} className="space-y-1">
                 <button
                   onClick={() => toggleExpand(item.name)}
-                  className="flex items-center justify-between w-full px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-all duration-200"
+                  className={cn(
+                    'flex items-center justify-between w-full px-3 py-2 rounded-xl transition-all duration-200',
+                    isGroupActive
+                      ? 'bg-blue-50 text-blue-700 font-semibold'
+                      : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                  )}
                 >
                   <div className="flex items-center gap-3">
                     <item.icon className="w-5 h-5" />
@@ -174,7 +219,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
             );
           }
 
-          // Item sin hijos
+          // Item sin hijos (ej: Desincorporación, Productos, Almacenes, Inventario)
           if (!item.path) return null;
 
           return (
@@ -186,7 +231,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
                 cn(
                   'flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200',
                   isActive 
-                    ? 'bg-blue-50 text-blue-700' 
+                    ? 'bg-blue-50 text-blue-700 font-semibold' 
                     : 'hover:bg-slate-50 hover:text-slate-900 text-slate-700'
                 )
               }

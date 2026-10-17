@@ -1,17 +1,36 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ProductApi, CategoryApi, WarehouseApi, PickingLotApi, UserApi, StockApi } from '../../../services/api';
 import { Product, Category, Warehouse, PickingLot, User, Stock } from '../../../types';
 
 export const usePurchasing = () => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [warehouses, setStores] = useState<Warehouse[]>([]);
+  const [products, setProducts]       = useState<Product[]>([]);
+  const [categories, setCategories]   = useState<Category[]>([]);
+  const [warehouses, setStores]       = useState<Warehouse[]>([]);
   const [pickingLots, setPickingLots] = useState<PickingLot[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [stock, setStock] = useState<Stock[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [users, setUsers]             = useState<User[]>([]);
+  const [stock, setStock]             = useState<Stock[]>([]);
+  const [isLoading, setIsLoading]     = useState(true);
 
-  const loadData = async () => {
+  const normalizeLots = (rawLots: any[]): PickingLot[] => {
+    return (Array.isArray(rawLots) ? rawLots : []).map((lot: any) => ({
+      ...lot,
+      id: String(lot.id),
+      warehouseId: String(lot.warehouseId),
+      createdBy: String(lot.createdBy),
+      items: (Array.isArray(lot.items) ? lot.items : []).map((item: any) => ({
+        ...item,
+        id: String(item.id),
+        productId: String(item.productId),
+        quantityToEnter: Number(item.quantityToEnter) || 0,
+        numberOfPackages: Number(item.numberOfPackages) || 1,
+        packagesConfig: Array.isArray(item.packagesConfig) ? item.packagesConfig : [],
+        packageDescription: item.packageDescription || '',
+        minStockAlert: Number(item.minStockAlert) || 0,
+      })),
+    }));
+  };
+
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [productsData, categoriesData, storesData, lotsData, usersData, stockData] = await Promise.all([
@@ -25,7 +44,7 @@ export const usePurchasing = () => {
       setProducts(productsData as Product[]);
       setCategories(categoriesData as Category[]);
       setStores(storesData as Warehouse[]);
-      setPickingLots(lotsData as PickingLot[]);
+      setPickingLots(normalizeLots(lotsData as any[]));
       setUsers(usersData as User[]);
       setStock(stockData as Stock[]);
     } catch (error) {
@@ -33,11 +52,11 @@ export const usePurchasing = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const savePickingLot = async (lot: PickingLot) => {
     if (lot.id) {
@@ -45,12 +64,14 @@ export const usePurchasing = () => {
     } else {
       await PickingLotApi.create(lot);
     }
-    setPickingLots((await PickingLotApi.getAll()) as PickingLot[]);
+    const updated = await PickingLotApi.getAll();
+    setPickingLots(normalizeLots(updated as any[]));
   };
 
   const deletePickingLot = async (id: string) => {
     await PickingLotApi.remove(id);
-    setPickingLots((await PickingLotApi.getAll()) as PickingLot[]);
+    const updated = await PickingLotApi.getAll();
+    setPickingLots(normalizeLots(updated as any[]));
   };
 
   const getProduct  = (id: string) => products.find(p => String(p.id) === String(id));
@@ -66,6 +87,7 @@ export const usePurchasing = () => {
     users,
     stock,
     isLoading,
+    loadData,
     savePickingLot,
     deletePickingLot,
     getProduct,

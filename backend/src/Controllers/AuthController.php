@@ -36,8 +36,8 @@ class AuthController
             'username'       => $user['username'],
             'name'           => $user['name'],
             'role'           => $user['role'],
-            'permissions'    => $user['permissions'] ?? [],    // Requerido por el Sidebar para chequear VIEW_STOCK_MOVEMENTS, etc.
-            'assignedStores' => $user['assignedStores'] ?? [], // Requerido por el filtro de tiendas del Depósito
+            'permissions'        => $user['permissions'] ?? [],    // Requerido por el Sidebar para chequear VIEW_STOCK_MOVEMENTS, etc.
+            'assignedWarehouses' => $user['assignedWarehouses'] ?? [], // Requerido por el filtro de tiendas del Depósito
         ];
 
         $token = JWT::encode($payload, $secret, 'HS256');

@@ -1,29 +1,32 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ProductApi, StockApi, PickingLotApi } from '../services/api';
-import { Product, Stock, PickingLot } from '../types';
+import { ProductApi, StockApi, PickingLotApi, WarehouseSpaceApi } from '../services/api';
+import { Product, Stock, PickingLot, WarehouseSpace } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Package, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { Package, AlertTriangle, CheckCircle2, Clock, Truck } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [stock, setStock] = useState<Stock[]>([]);
   const [lots, setLots] = useState<PickingLot[]>([]);
+  const [warehouseSpaces, setWarehouseSpaces] = useState<WarehouseSpace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
       try {
-        const [p, s, l] = await Promise.all([
+        const [p, s, l, ws] = await Promise.all([
           ProductApi.getAll(),
           StockApi.getAll(),
           PickingLotApi.getAll(),
+          WarehouseSpaceApi.getAll(),
         ]);
         setProducts(p as Product[]);
         setStock(s as Stock[]);
         setLots(l as PickingLot[]);
+        setWarehouseSpaces(ws as WarehouseSpace[]);
       } catch (err) {
         console.error('Error cargando dashboard:', err);
       } finally {
@@ -34,9 +37,33 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const totalProducts = products.length;
-  const lowStockItems = stock.filter(s => s.quantity <= s.minStock).length;
+  const lowStockItems = stock.filter(s => s.quantity <= s.minStock && s.minStock > 0).length;
   const pendingLots   = lots.filter(l => l.status === 'PENDING').length;
   const conformedLots = lots.filter(l => l.status === 'CONFORMED').length;
+
+  // ── Alertas de Stock mínimo espacio despachos ──────────────────────────────
+  const dispatchSpaceIds = new Set(
+    warehouseSpaces
+      .filter(ws => ws.spaceUsageType === 'Despachos')
+      .map(ws => String(ws.id))
+  );
+  // Agrupar stock por (productId, warehouseId) y detectar alarma de despacho
+  const stockByProductWarehouse = new Map<string, Stock[]>();
+  stock.forEach(s => {
+    const key = `${s.productId}::${s.warehouseId}`;
+    if (!stockByProductWarehouse.has(key)) stockByProductWarehouse.set(key, []);
+    stockByProductWarehouse.get(key)!.push(s);
+  });
+  let lowDispatchItems = 0;
+  stockByProductWarehouse.forEach(items => {
+    const minStockDispatch = items.reduce((a, c) => Math.max(a, Number(c.minStockDispatch ?? 0)), 0);
+    if (minStockDispatch <= 0) return;
+    const dispatchQty = items
+      .filter(i => i.warehouseSpaceId && dispatchSpaceIds.has(String(i.warehouseSpaceId)))
+      .reduce((a, c) => a + Number(c.quantity), 0);
+    if (dispatchQty <= minStockDispatch) lowDispatchItems++;
+  });
+  // ───────────────────────────────────────────────────────────────────────────
 
   const chartData = products.map(p => {
     const pStock = stock
@@ -60,11 +87,12 @@ const Dashboard: React.FC = () => {
         <p className="text-slate-500 mt-2">Resumen de operaciones y estado del almacén.</p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <StatCard title="Total Productos"      value={totalProducts} icon={Package}     color="text-blue-600"   bg="bg-blue-50" />
-        <StatCard title="Alertas Stock Mínimo" value={lowStockItems} icon={AlertTriangle} color="text-amber-600" bg="bg-amber-50" />
-        <StatCard title="Lotes Pendientes"     value={pendingLots}   icon={Clock}        color="text-purple-600" bg="bg-purple-50" />
-        <StatCard title="Lotes Conformados"    value={conformedLots} icon={CheckCircle2} color="text-emerald-600" bg="bg-emerald-50" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
+        <StatCard title="Total Productos"        value={totalProducts}    icon={Package}      color="text-blue-600"   bg="bg-blue-50" />
+        <StatCard title="Alertas Stock Gral."    value={lowStockItems}    icon={AlertTriangle} color="text-amber-600" bg="bg-amber-50" />
+        <StatCard title="Alertas Stock Despachos" value={lowDispatchItems} icon={Truck}        color="text-orange-600" bg="bg-orange-50" />
+        <StatCard title="Lotes Pendientes"       value={pendingLots}      icon={Clock}        color="text-purple-600" bg="bg-purple-50" />
+        <StatCard title="Lotes Conformados"      value={conformedLots}    icon={CheckCircle2} color="text-emerald-600" bg="bg-emerald-50" />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-sm mt-8">
