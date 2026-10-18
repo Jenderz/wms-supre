@@ -79,6 +79,11 @@ export const useDispatches = () => {
         requestedQuantity: Number(item.requestedQuantity ?? item.quantityRequired ?? 0),
         quantityRequired: Number(item.requestedQuantity ?? item.quantityRequired ?? 0),
         warehouseSpaceId: item.warehouseSpaceId ? String(item.warehouseSpaceId) : null,
+        warehouseSpaceAssignments: (Array.isArray(item.warehouseSpaceAssignments) ? item.warehouseSpaceAssignments : []).map((a: any) => ({
+          ...a,
+          warehouseSpaceId: String(a.warehouseSpaceId),
+          quantity: Number(a.quantity ?? 0),
+        })),
       })),
     }));
   };

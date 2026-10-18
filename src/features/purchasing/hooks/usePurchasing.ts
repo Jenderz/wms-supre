@@ -58,12 +58,28 @@ export const usePurchasing = () => {
     loadData();
   }, [loadData]);
 
-  const savePickingLot = async (lot: PickingLot) => {
+  const savePickingLot = async (lot: PickingLot): Promise<string | undefined> => {
+    let resultId = lot.id;
     if (lot.id) {
       await PickingLotApi.update(lot.id, lot);
     } else {
-      await PickingLotApi.create(lot);
+      const res = await PickingLotApi.create(lot);
+      if (res?.id) {
+        resultId = String(res.id);
+      }
     }
+    const updated = await PickingLotApi.getAll();
+    setPickingLots(normalizeLots(updated as any[]));
+    return resultId;
+  };
+
+  const conformPickingLot = async (lotId: string) => {
+    await PickingLotApi.conform(lotId);
+    await loadData();
+  };
+
+  const updatePickingLotStatus = async (lotId: string, status: 'DRAFT' | 'PENDING') => {
+    await PickingLotApi.updateStatus(lotId, status);
     const updated = await PickingLotApi.getAll();
     setPickingLots(normalizeLots(updated as any[]));
   };
@@ -89,6 +105,8 @@ export const usePurchasing = () => {
     isLoading,
     loadData,
     savePickingLot,
+    conformPickingLot,
+    updatePickingLotStatus,
     deletePickingLot,
     getProduct,
     getCategory,

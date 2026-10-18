@@ -13,7 +13,11 @@ import {
   Settings as SettingsIcon,
   ChevronDown,
   ChevronRight,
-  Truck
+  Truck,
+  ShieldAlert,
+  ArrowLeftRight,
+  FileSpreadsheet,
+  Flame,
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -69,11 +73,45 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       ]
     },
     {
-      name: 'Desincorporación',
-      path: '/disincorporation',
-      icon: Trash2,
-      roles: ['ADMIN', 'DESINCORPORACION'],
+      name: 'Stock Mínimo',
+      icon: ShieldAlert,
+      roles: ['ADMIN', 'COMPRAS', 'DEPOSITO'],
       permission: null,
+      subItems: [
+        { name: 'Stock Mínimo General', path: '/min-stock/general', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO'], permission: null },
+        { name: 'Stock Mínimo Despacho', path: '/min-stock/dispatch', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO'], permission: null },
+        { name: 'Stock Mínimo Archivado', path: '/min-stock/archived', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO'], permission: null },
+      ]
+    },
+    {
+      name: 'Picking Transferencia',
+      icon: ArrowLeftRight,
+      roles: ['ADMIN', 'COMPRAS', 'DEPOSITO'],
+      permission: null,
+      subItems: [
+        { name: 'Picking Transferencia', path: '/transfer-picking/new', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO'], permission: null },
+        { name: 'Lista Picking Transferencia', path: '/transfer-picking/list', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO'], permission: null },
+      ]
+    },
+    {
+      name: 'Registro RDI',
+      icon: FileSpreadsheet,
+      roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'],
+      permission: null,
+      subItems: [
+        { name: 'Registro RDI', path: '/rdi/new', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'], permission: null },
+        { name: 'Lista RDI', path: '/rdi/list', roles: ['ADMIN', 'COMPRAS', 'DEPOSITO', 'DESINCORPORACION'], permission: null },
+      ]
+    },
+    {
+      name: 'Registro Averías',
+      icon: Flame,
+      roles: ['ADMIN', 'DEPOSITO', 'DESINCORPORACION'],
+      permission: null,
+      subItems: [
+        { name: 'Registro Averías', path: '/damages/new', roles: ['ADMIN', 'DEPOSITO', 'DESINCORPORACION'], permission: null },
+        { name: 'Lista Averías', path: '/damages/list', roles: ['ADMIN', 'DEPOSITO', 'DESINCORPORACION'], permission: null },
+      ]
     },
     {
       name: 'Despachos',
@@ -130,6 +168,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
     'Análisis': true,
     'Abastecimiento': location.pathname.startsWith('/purchasing'),
     'Despachos': location.pathname.startsWith('/dispatches'),
+    'Stock Mínimo': location.pathname.startsWith('/min-stock'),
+    'Picking Transferencia': location.pathname.startsWith('/transfer-picking'),
+    'Registro RDI': location.pathname.startsWith('/rdi'),
+    'Registro Averías': location.pathname.startsWith('/damages'),
   }));
 
   const toggleExpand = (name: string) => {

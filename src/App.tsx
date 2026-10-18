@@ -32,6 +32,27 @@ const DispatchDetail    = lazy(() => import('./pages/dispatches/DispatchDetail')
 const DispatchPrint     = lazy(() => import('./pages/dispatches/DispatchPrint'));
 const DispatchPrintNote = lazy(() => import('./pages/dispatches/DispatchPrintNote'));
 
+// ── Módulo Stock Mínimo ─────────────────────────────────────────────────────
+const MinStockLayout   = lazy(() => import('./pages/min-stock/MinStockLayout'));
+const MinStockGeneral  = lazy(() => import('./pages/min-stock/MinStockGeneral'));
+const MinStockDispatch = lazy(() => import('./pages/min-stock/MinStockDispatch'));
+const MinStockArchived = lazy(() => import('./pages/min-stock/MinStockArchived'));
+
+// ── Módulo Picking Transferencia ───────────────────────────────────────────
+const TransferPickingLayout = lazy(() => import('./pages/transfer-picking/TransferPickingLayout'));
+const TransferPickingCreate = lazy(() => import('./pages/transfer-picking/TransferPickingCreate'));
+const TransferPickingList   = lazy(() => import('./pages/transfer-picking/TransferPickingList'));
+
+// ── Módulo Registro RDI ────────────────────────────────────────────────────
+const RdiLayout = lazy(() => import('./pages/rdi/RdiLayout'));
+const RdiCreate = lazy(() => import('./pages/rdi/RdiCreate'));
+const RdiList   = lazy(() => import('./pages/rdi/RdiList'));
+
+// ── Módulo Registro Averías ────────────────────────────────────────────────
+const DamagesLayout = lazy(() => import('./pages/damages/DamagesLayout'));
+const DamagesCreate = lazy(() => import('./pages/damages/DamagesCreate'));
+const DamagesList   = lazy(() => import('./pages/damages/DamagesList'));
+
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-[400px]">
     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -75,6 +96,35 @@ export default function App() {
                   <Route path="detail"     element={<DispatchDetail />} />
                   <Route path="print"      element={<DispatchPrint />} />
                   <Route path="print-note" element={<DispatchPrintNote />} />
+                </Route>
+
+                {/* ── Módulo Stock Mínimo con Layout y 3 sub-rutas ───── */}
+                <Route path="min-stock" element={<MinStockLayout />}>
+                  <Route index element={<Navigate to="general" replace />} />
+                  <Route path="general"  element={<MinStockGeneral />} />
+                  <Route path="dispatch" element={<MinStockDispatch />} />
+                  <Route path="archived" element={<MinStockArchived />} />
+                </Route>
+
+                {/* ── Módulo Picking Transferencia con Layout y 2 sub-rutas ─ */}
+                <Route path="transfer-picking" element={<TransferPickingLayout />}>
+                  <Route index element={<Navigate to="list" replace />} />
+                  <Route path="new"  element={<TransferPickingCreate />} />
+                  <Route path="list" element={<TransferPickingList />} />
+                </Route>
+
+                {/* ── Módulo Registro RDI con Layout y 2 sub-rutas ───── */}
+                <Route path="rdi" element={<RdiLayout />}>
+                  <Route index element={<Navigate to="list" replace />} />
+                  <Route path="new"  element={<RdiCreate />} />
+                  <Route path="list" element={<RdiList />} />
+                </Route>
+
+                {/* ── Módulo Registro Averías con Layout y 2 sub-rutas ─ */}
+                <Route path="damages" element={<DamagesLayout />}>
+                  <Route index element={<Navigate to="list" replace />} />
+                  <Route path="new"  element={<DamagesCreate />} />
+                  <Route path="list" element={<DamagesList />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

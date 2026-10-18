@@ -58,6 +58,10 @@ use App\Controllers\DisincorporationController;
 use App\Controllers\AccessKeyController;
 use App\Controllers\StockMovementController;
 use App\Controllers\DispatchController;
+use App\Controllers\MinStockController;
+use App\Controllers\TransferPickingController;
+use App\Controllers\RdiRecordController;
+use App\Controllers\DamageRecordController;
 use App\Middleware\AuthMiddleware;
 use App\Helpers\Response;
 
@@ -141,6 +145,7 @@ try {
     route('POST',   '/picking-lots',           fn() => (new PickingLotController())->store());
     route('GET',    '/picking-lots/{id}',      fn($params) => (new PickingLotController())->show($params['id']));
     route('PUT',    '/picking-lots/{id}',      fn($params) => (new PickingLotController())->update($params['id']));
+    route('PATCH',  '/picking-lots/{id}/status',  fn($params) => (new PickingLotController())->updateStatus($params['id']));
     route('PATCH',  '/picking-lots/{id}/conform', fn($params) => (new PickingLotController())->conform($params['id'], $user));
     route('DELETE', '/picking-lots/{id}',      fn($params) => (new PickingLotController())->destroy($params['id'], $user));
 
@@ -171,6 +176,35 @@ try {
     route('PUT',    '/dispatches/{id}',      fn($params) => (new DispatchController())->update($params['id']));
     route('PATCH',  '/dispatches/{id}/status', fn($params) => (new DispatchController())->updateStatus($params['id'], $user));
     route('DELETE', '/dispatches/{id}',      fn($params) => (new DispatchController())->destroy($params['id']));
+
+    // --- Min Stock ---
+    route('GET',    '/min-stock/general',    fn() => (new MinStockController())->general());
+    route('GET',    '/min-stock/dispatch',   fn() => (new MinStockController())->dispatch());
+    route('GET',    '/min-stock/archived',   fn() => (new MinStockController())->archived());
+    route('POST',   '/min-stock/archive',    fn() => (new MinStockController())->archive($user));
+    route('POST',   '/min-stock/unarchive',  fn() => (new MinStockController())->unarchive());
+
+    // --- Transfer Pickings ---
+    route('GET',    '/transfer-pickings',           fn() => (new TransferPickingController())->index());
+    route('POST',   '/transfer-pickings',           fn() => (new TransferPickingController())->store($user));
+    route('GET',    '/transfer-pickings/{id}',      fn($params) => (new TransferPickingController())->show($params['id']));
+    route('PUT',    '/transfer-pickings/{id}',      fn($params) => (new TransferPickingController())->update($params['id'], $user));
+    route('PATCH',  '/transfer-pickings/{id}/status', fn($params) => (new TransferPickingController())->updateStatus($params['id'], $user));
+    route('DELETE', '/transfer-pickings/{id}',      fn($params) => (new TransferPickingController())->destroy($params['id'], $user));
+
+    // --- RDI Records ---
+    route('GET',    '/rdi-records',           fn() => (new RdiRecordController())->index());
+    route('POST',   '/rdi-records',           fn() => (new RdiRecordController())->store($user));
+    route('GET',    '/rdi-records/{id}',      fn($params) => (new RdiRecordController())->show($params['id']));
+    route('PATCH',  '/rdi-records/{id}/status', fn($params) => (new RdiRecordController())->updateStatus($params['id'], $user));
+    route('DELETE', '/rdi-records/{id}',      fn($params) => (new RdiRecordController())->destroy($params['id'], $user));
+
+    // --- Damage Records ---
+    route('GET',    '/damage-records',           fn() => (new DamageRecordController())->index());
+    route('POST',   '/damage-records',           fn() => (new DamageRecordController())->store($user));
+    route('GET',    '/damage-records/{id}',      fn($params) => (new DamageRecordController())->show($params['id']));
+    route('PATCH',  '/damage-records/{id}/status', fn($params) => (new DamageRecordController())->updateStatus($params['id'], $user));
+    route('DELETE', '/damage-records/{id}',      fn($params) => (new DamageRecordController())->destroy($params['id'], $user));
 
     // Si ninguna ruta hizo match
     Response::json(['error' => 'Endpoint no encontrado.'], 404);

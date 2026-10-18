@@ -15,7 +15,13 @@ import {
   Warehouse as StoreIcon,
   User as UserIcon,
   Layers,
-  Filter
+  Filter,
+  CheckCircle,
+  CheckCircle2,
+  Clock,
+  ArrowRightCircle,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -34,6 +40,9 @@ export const PickingList: React.FC = () => {
     pickingLots,
     isLoading,
     deletePickingLot,
+    conformPickingLot,
+    updatePickingLotStatus,
+    getProduct,
     getCategory,
     getStore,
     getUser
@@ -42,6 +51,9 @@ export const PickingList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'PENDING' | 'CONFORMED'>('ALL');
   const [warehouseFilter, setWarehouseFilter] = useState<string>('ALL');
+  const [lotToConform, setLotToConform] = useState<PickingLot | null>(null);
+  const [isConforming, setIsConforming] = useState(false);
+  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
   const visibleLots = useMemo(() => {
     return pickingLots.filter(lot => {
@@ -144,8 +156,48 @@ export const PickingList: React.FC = () => {
     }
   };
 
+  const handlePromoteToPending = async (lot: PickingLot) => {
+    if (window.confirm(`¿Pasar el lote #${lot.lotNumber} a estado PENDIENTE para habilitar su recepción y conformación en almacén?`)) {
+      try {
+        await updatePickingLotStatus(lot.id, 'PENDING');
+        setActionSuccessMsg(`Lote #${lot.lotNumber} actualizado a PENDIENTE.`);
+        setTimeout(() => setActionSuccessMsg(null), 4000);
+      } catch (e: any) {
+        alert(`Error al actualizar estado: ${e?.message || e}`);
+      }
+    }
+  };
+
+  const handleConfirmConform = async () => {
+    if (!lotToConform) return;
+    setIsConforming(true);
+    try {
+      await conformPickingLot(lotToConform.id);
+      const conformedNumber = lotToConform.lotNumber;
+      setLotToConform(null);
+      setActionSuccessMsg(`¡Lote #${conformedNumber} conformado exitosamente! La mercancía ha ingresado al inventario.`);
+      setTimeout(() => setActionSuccessMsg(null), 4000);
+    } catch (err: any) {
+      alert(`Error al conformar el lote: ${err?.message || err}`);
+    } finally {
+      setIsConforming(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {actionSuccessMsg && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center justify-between text-sm shadow-sm animate-fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span className="font-medium">{actionSuccessMsg}</span>
+          </div>
+          <button onClick={() => setActionSuccessMsg(null)} className="text-emerald-500 hover:text-emerald-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* ── Barra de Acciones y Filtros ── */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
@@ -262,21 +314,34 @@ export const PickingList: React.FC = () => {
                           {Math.round(totalPieces)}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant={
-                              lot.status === 'CONFORMED'
-                                ? 'success'
-                                : lot.status === 'PENDING'
-                                ? 'warning'
-                                : 'default'
-                            }
-                          >
-                            {lot.status === 'DRAFT'
-                              ? 'Borrador'
-                              : lot.status === 'PENDING'
-                              ? 'Pendiente'
-                              : 'Conformado'}
-                          </Badge>
+                          {lot.status === 'CONFORMED' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Conformado
+                            </span>
+                          )}
+                          {lot.status === 'PENDING' && (
+                            <button
+                              onClick={() => setLotToConform(lot)}
+                              title="Clic para conformar e ingresar stock"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 hover:bg-emerald-100 text-amber-800 hover:text-emerald-800 border border-amber-300 hover:border-emerald-300 transition-all cursor-pointer shadow-sm group"
+                            >
+                              <Clock className="w-3.5 h-3.5 text-amber-600 group-hover:hidden" />
+                              <CheckCircle className="w-3.5 h-3.5 text-emerald-600 hidden group-hover:inline" />
+                              <span className="group-hover:hidden">Pendiente</span>
+                              <span className="hidden group-hover:inline font-bold">¡Conformar!</span>
+                            </button>
+                          )}
+                          {lot.status === 'DRAFT' && (
+                            <button
+                              onClick={() => handlePromoteToPending(lot)}
+                              title="Clic para enviar a Pendiente"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 border border-slate-300 hover:border-blue-300 transition-all cursor-pointer shadow-sm group"
+                            >
+                              <span>Borrador</span>
+                              <ArrowRightCircle className="w-3.5 h-3.5 text-blue-500 opacity-60 group-hover:opacity-100" />
+                            </button>
+                          )}
                         </TableCell>
                         <TableCell className="text-slate-500 text-xs">
                           {lot.createdAt ? format(new Date(lot.createdAt), 'dd/MM/yyyy HH:mm') : '-'}
@@ -290,6 +355,26 @@ export const PickingList: React.FC = () => {
                             >
                               <Download className="w-4 h-4" />
                             </button>
+
+                            {lot.status === 'PENDING' && (
+                              <button
+                                onClick={() => setLotToConform(lot)}
+                                className="p-2 text-amber-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                title="Conformar Lote e Ingresar Stock"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {lot.status === 'DRAFT' && (
+                              <button
+                                onClick={() => handlePromoteToPending(lot)}
+                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                title="Pasar a Pendiente"
+                              >
+                                <ArrowRightCircle className="w-4 h-4" />
+                              </button>
+                            )}
 
                             {lot.status !== 'CONFORMED' && (
                               <>
@@ -331,6 +416,110 @@ export const PickingList: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ── Modal de Confirmación para Conformar Lote ── */}
+      {lotToConform && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Conformar Lote de Picking</h3>
+                  <p className="text-xs text-slate-500 font-mono">#{lotToConform.lotNumber}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setLotToConform(null)}
+                disabled={isConforming}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Resumen del Lote */}
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Almacén Destino</p>
+                <p className="text-sm font-bold text-slate-800 truncate mt-0.5">
+                  {getStore(lotToConform.warehouseId)?.name || 'Sin almacén'}
+                </p>
+              </div>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Ítems</p>
+                <p className="text-sm font-bold text-slate-800 mt-0.5">{lotToConform.items.length}</p>
+              </div>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Total Piezas</p>
+                <p className="text-sm font-bold text-blue-600 mt-0.5">
+                  {Math.round(lotToConform.items.reduce((acc, it) => acc + (Number(it.quantityToEnter) || 0), 0))}
+                </p>
+              </div>
+            </div>
+
+            {/* Detalle de Productos a Ingresar */}
+            <div className="mb-5 max-h-48 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-100">
+              {lotToConform.items.map((item, idx) => {
+                const prod = getProduct(item.productId);
+                return (
+                  <div key={item.id || idx} className="p-2.5 flex items-center justify-between text-xs bg-white hover:bg-slate-50">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-800">{prod?.name || `Producto #${item.productId}`}</span>
+                      <span className="text-[11px] text-slate-400 font-mono">{prod?.code || item.productId}</span>
+                    </div>
+                    <div className="text-right font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      +{item.quantityToEnter} uds
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Alerta de Impacto */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 mb-6 flex gap-3 text-xs text-amber-800">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Efecto en Inventario</p>
+                <p className="mt-0.5 text-amber-700">
+                  Al confirmar, las cantidades se incrementarán de inmediato en el inventario físico del almacén y se registrarán movimientos de recepción formal (IN/RECEPTION).
+                </p>
+              </div>
+            </div>
+
+            {/* Botones de Acción */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => setLotToConform(null)}
+                disabled={isConforming}
+                className="text-slate-600"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleConfirmConform}
+                disabled={isConforming}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-600/20"
+              >
+                {isConforming ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                    Conformando...
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4" />
+                    Conformar e Ingresar Stock
+                  </span>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -4,6 +4,18 @@
  * Maneja autenticación JWT automática en cada petición.
  */
 
+import type {
+  MinStockGeneralRow,
+  MinStockDispatchRow,
+  MinStockArchivedRow,
+  TransferPicking,
+  TransferPickingStatus,
+  RdiRecord,
+  RdiStatus,
+  DamageRecord,
+  DamageStatus,
+} from '../types';
+
 const API_URL = (import.meta.env.VITE_API_URL as string) || '/api';
 const TOKEN_KEY = 'supre_wms_token';
 
@@ -224,6 +236,7 @@ export const PickingLotApi = {
   getOne:  (id: string | number)       => get<unknown>(`/picking-lots/${id}`),
   create:  (data: unknown)             => post<{ id: number }>('/picking-lots', data),
   update:  (id: string | number, data: unknown) => put<unknown>(`/picking-lots/${id}`, data),
+  updateStatus: (id: string | number, status: string) => patch<unknown>(`/picking-lots/${id}/status`, { status }),
   conform: (id: string | number)       => patch<unknown>(`/picking-lots/${id}/conform`),
   remove:  (id: string | number)       => del<void>(`/picking-lots/${id}`),
 };
@@ -310,6 +323,113 @@ export const DispatchApi = {
   remove:  (id: string | number)                 => del<void>(`/dispatches/${id}`),
   updateStatus: (id: string | number, status: string) =>
     patch<unknown>(`/dispatches/${id}/status`, { status }),
+};
+
+// ===========================================================
+// MinStockApi
+// ===========================================================
+export const MinStockApi = {
+  getGeneral: (params?: { warehouseId?: string; stockFilter?: string; search?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.warehouseId) q.append('warehouseId', params.warehouseId);
+    if (params?.stockFilter) q.append('stockFilter', params.stockFilter);
+    if (params?.search) q.append('search', params.search);
+    return get<MinStockGeneralRow[]>(`/min-stock/general?${q.toString()}`);
+  },
+  getDispatch: (params?: { warehouseId?: string; stockFilter?: string; search?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.warehouseId) q.append('warehouseId', params.warehouseId);
+    if (params?.stockFilter) q.append('stockFilter', params.stockFilter);
+    if (params?.search) q.append('search', params.search);
+    return get<MinStockDispatchRow[]>(`/min-stock/dispatch?${q.toString()}`);
+  },
+  getArchived: (params?: { warehouseId?: string; search?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.warehouseId) q.append('warehouseId', params.warehouseId);
+    if (params?.search) q.append('search', params.search);
+    return get<MinStockArchivedRow[]>(`/min-stock/archived?${q.toString()}`);
+  },
+  archive: (items: { productId: string; warehouseId: string }[], deadlineAt?: string) =>
+    post<{ message: string }>('/min-stock/archive', { items, deadlineAt }),
+  unarchive: (items: { productId: string; warehouseId: string }[]) =>
+    post<{ message: string }>('/min-stock/unarchive', { items }),
+};
+
+// ===========================================================
+// TransferPickingApi
+// ===========================================================
+export const TransferPickingApi = {
+  getAll: (params?: {
+    originWarehouseId?: string;
+    destinationWarehouseId?: string;
+    responsibleUserId?: string;
+    status?: string;
+    search?: string;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.originWarehouseId) q.append('originWarehouseId', params.originWarehouseId);
+    if (params?.destinationWarehouseId) q.append('destinationWarehouseId', params.destinationWarehouseId);
+    if (params?.responsibleUserId) q.append('responsibleUserId', params.responsibleUserId);
+    if (params?.status) q.append('status', params.status);
+    if (params?.search) q.append('search', params.search);
+    return get<TransferPicking[]>(`/transfer-pickings?${q.toString()}`);
+  },
+  getById: (id: string | number) => get<TransferPicking>(`/transfer-pickings/${id}`),
+  create: (data: unknown) => post<{ message: string; data: TransferPicking }>('/transfer-pickings', data),
+  update: (id: string | number, data: unknown) => put<{ message: string; data: TransferPicking }>(`/transfer-pickings/${id}`, data),
+  updateStatus: (id: string | number, status: TransferPickingStatus) =>
+    patch<{ message: string; data: TransferPicking }>(`/transfer-pickings/${id}/status`, { status }),
+  delete: (id: string | number) => del<void>(`/transfer-pickings/${id}`),
+};
+
+// ===========================================================
+// RdiApi
+// ===========================================================
+export const RdiApi = {
+  getAll: (params?: {
+    rdiType?: string;
+    warehouseId?: string;
+    status?: string;
+    search?: string;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.rdiType) q.append('rdiType', params.rdiType);
+    if (params?.warehouseId) q.append('warehouseId', params.warehouseId);
+    if (params?.status) q.append('status', params.status);
+    if (params?.search) q.append('search', params.search);
+    return get<RdiRecord[]>(`/rdi-records?${q.toString()}`);
+  },
+  getById: (id: string | number) => get<RdiRecord>(`/rdi-records/${id}`),
+  createBatch: (data: unknown) => post<{ message: string; data: { ids: number[] } }>('/rdi-records', data),
+  updateStatus: (id: string | number, status: RdiStatus) =>
+    patch<{ message: string; data: RdiRecord }>(`/rdi-records/${id}/status`, { status }),
+  delete: (id: string | number) => del<void>(`/rdi-records/${id}`),
+};
+
+// ===========================================================
+// DamageApi
+// ===========================================================
+export const DamageApi = {
+  getAll: (params?: {
+    inventoryCorrection?: boolean;
+    warehouseId?: string;
+    status?: string;
+    search?: string;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.inventoryCorrection !== undefined) {
+      q.append('inventoryCorrection', params.inventoryCorrection ? '1' : '0');
+    }
+    if (params?.warehouseId) q.append('warehouseId', params.warehouseId);
+    if (params?.status) q.append('status', params.status);
+    if (params?.search) q.append('search', params.search);
+    return get<DamageRecord[]>(`/damage-records?${q.toString()}`);
+  },
+  getById: (id: string | number) => get<DamageRecord>(`/damage-records/${id}`),
+  createBatch: (data: unknown) => post<{ message: string; data: { ids: number[] } }>('/damage-records', data),
+  updateStatus: (id: string | number, status: DamageStatus) =>
+    patch<{ message: string; data: DamageRecord }>(`/damage-records/${id}/status`, { status }),
+  delete: (id: string | number) => del<void>(`/damage-records/${id}`),
 };
 
 // ===========================================================

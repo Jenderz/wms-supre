@@ -362,13 +362,26 @@ class DispatchOrder
                 throw new Exception("Orden de despacho #{$id} no encontrada.");
             }
 
-            // Regla de negocio: Solo se pueden editar órdenes en estado PENDIENTE creadas por 'crear directo'
-            if ($existing['status'] !== 'PENDIENTE') {
-                throw new Exception("Solo se pueden editar órdenes que se encuentren en estado PENDIENTE.");
+            // Regla de negocio: Permitir editar órdenes en estado PENDIENTE o EN_PROCESO
+            if (!in_array($existing['status'], ['PENDIENTE', 'EN_PROCESO'], true)) {
+                throw new Exception("Solo se pueden editar órdenes que se encuentren en estado PENDIENTE o EN_PROCESO.");
             }
 
             if (!empty($existing['origin']) && $existing['origin'] !== 'DIRECT') {
-                throw new Exception("No está permitido editar órdenes provenientes de otros módulos de entrada de pedidos.");
+                // Si la orden viene de otro origen (ej. Ecommerce/POS), solo se permite actualizar asignaciones de espacio y notas
+                if (isset($data['items']) && is_array($data['items'])) {
+                    $origProducts = [];
+                    foreach ($existing['items'] as $it) {
+                        $origProducts[(string)$it['productId']] = (float)($it['requestedQuantity'] ?? $it['quantityRequired'] ?? 0);
+                    }
+                    foreach ($data['items'] as $it) {
+                        $pId = (string)($it['productId'] ?? $it['product_id'] ?? '');
+                        $qty = (float)($it['requestedQuantity'] ?? $it['quantityRequired'] ?? 0);
+                        if (!isset($origProducts[$pId]) || abs($origProducts[$pId] - $qty) > 0.001) {
+                            throw new Exception("No está permitido modificar productos ni cantidades de órdenes provenientes de otros módulos de entrada.");
+                        }
+                    }
+                }
             }
 
             $oldWarehouseId = (int) $existing['warehouseId'];
@@ -408,7 +421,7 @@ class DispatchOrder
         }
     }
 
-    public function updateStatus(int $id, string $newStatus, int $userId): void
+    public function updateStatus(int $id, string $newStatus, int $userId, ?array $itemsPayload = null): void
     {
         $order = $this->findById($id);
         if (!$order) {
@@ -416,43 +429,48 @@ class DispatchOrder
         }
 
         $oldStatus = $order['status'];
-        if ($oldStatus === $newStatus) {
+        if ($oldStatus === $newStatus && $itemsPayload === null) {
             return;
         }
 
         $this->db->beginTransaction();
         try {
             $warehouseId = (int) $order['warehouseId'];
-            $items = $this->getItems($id);
-
             $wasDeducted = $this->isDeductedStatus($oldStatus);
             $willDeduct = $this->isDeductedStatus($newStatus);
 
+            // Si se envían items en la petición y la orden aún no está deducida físicamente, sincronizarlos previamente
+            if ($itemsPayload !== null && !$wasDeducted) {
+                $this->syncItems($id, $itemsPayload);
+            }
+
+            $items = $this->getItems($id);
+
             // 1. Pasa A CONFIRMADO/DESPACHADO desde un estado no descontado (Descuenta stock físico real)
             if ($willDeduct && !$wasDeducted) {
+                $stmtMov = $this->db->prepare(
+                    "INSERT INTO stock_movements
+                        (product_id, warehouse_id, warehouse_space_id, type, reason, quantity, reference_id, notes, created_by)
+                     VALUES
+                        (:p_id, :w_id, :s_id, 'OUT', 'DESPACHO', :qty, :ref_id, :notes, :user_id)"
+                );
+
                 foreach ($items as $item) {
                     $productId = (int) $item['productId'];
-                    $qty = (float) ($item['requestedQuantity'] ?? $item['quantityRequired'] ?? 0);
-                    $spaceId = $item['warehouseSpaceId'] !== null ? (int) $item['warehouseSpaceId'] : null;
+                    $deductions = $this->processItemDeduction($warehouseId, $item);
 
-                    $this->processItemDeduction($warehouseId, $item);
-
-                    // Registrar stock_movement OUT
-                    $stmtMov = $this->db->prepare(
-                        "INSERT INTO stock_movements
-                            (product_id, warehouse_id, warehouse_space_id, type, reason, quantity, reference_id, notes, created_by)
-                         VALUES
-                            (:p_id, :w_id, :s_id, 'OUT', 'DESPACHO', :qty, :ref_id, :notes, :user_id)"
-                    );
-                    $stmtMov->execute([
-                        ':p_id'    => $productId,
-                        ':w_id'    => $warehouseId,
-                        ':s_id'    => $spaceId,
-                        ':qty'     => $qty,
-                        ':ref_id'  => $id,
-                        ':notes'   => "Despacho {$order['code']} (Estado: {$newStatus}) a cliente {$order['clientName']}",
-                        ':user_id' => $userId,
-                    ]);
+                    // Registrar stock_movement OUT por cada espacio real descontado
+                    foreach ($deductions as $ded) {
+                        $stmtMov->execute([
+                            ':p_id'    => $productId,
+                            ':w_id'    => $warehouseId,
+                            ':s_id'    => $ded['spaceId'],
+                            ':qty'     => $ded['quantity'],
+                            ':ref_id'  => $id,
+                            ':notes'   => "Despacho {$order['code']} (Estado: {$newStatus}) a cliente {$order['clientName']}",
+                            ':user_id' => $userId,
+                        ]);
+                    }
 
                     // Marcar renglón con el estado correspondiente
                     $stmtItemStatus = $this->db->prepare(
@@ -463,29 +481,29 @@ class DispatchOrder
             }
             // 2. Estaba en CONFIRMADO/DESPACHADO y se revierte a un estado no descontado (reintegra stock físico)
             else if ($wasDeducted && !$willDeduct) {
+                $stmtMov = $this->db->prepare(
+                    "INSERT INTO stock_movements
+                        (product_id, warehouse_id, warehouse_space_id, type, reason, quantity, reference_id, notes, created_by)
+                     VALUES
+                        (:p_id, :w_id, :s_id, 'IN', 'RETIRO_CANCELADO', :qty, :ref_id, :notes, :user_id)"
+                );
+
                 foreach ($items as $item) {
                     $productId = (int) $item['productId'];
-                    $qty = (float) ($item['requestedQuantity'] ?? $item['quantityRequired'] ?? 0);
-                    $spaceId = $item['warehouseSpaceId'] !== null ? (int) $item['warehouseSpaceId'] : null;
+                    $restores = $this->processItemRestore($warehouseId, $item);
 
-                    $this->processItemRestore($warehouseId, $item);
-
-                    // Registrar stock_movement IN
-                    $stmtMov = $this->db->prepare(
-                        "INSERT INTO stock_movements
-                            (product_id, warehouse_id, warehouse_space_id, type, reason, quantity, reference_id, notes, created_by)
-                         VALUES
-                            (:p_id, :w_id, :s_id, 'IN', 'RETIRO_CANCELADO', :qty, :ref_id, :notes, :user_id)"
-                    );
-                    $stmtMov->execute([
-                        ':p_id'    => $productId,
-                        ':w_id'    => $warehouseId,
-                        ':s_id'    => $spaceId,
-                        ':qty'     => $qty,
-                        ':ref_id'  => $id,
-                        ':notes'   => "Reversión de despacho {$order['code']} a {$newStatus}",
-                        ':user_id' => $userId,
-                    ]);
+                    // Registrar stock_movement IN por cada espacio real restaurado
+                    foreach ($restores as $res) {
+                        $stmtMov->execute([
+                            ':p_id'    => $productId,
+                            ':w_id'    => $warehouseId,
+                            ':s_id'    => $res['spaceId'],
+                            ':qty'     => $res['quantity'],
+                            ':ref_id'  => $id,
+                            ':notes'   => "Reversión de despacho {$order['code']} a {$newStatus}",
+                            ':user_id' => $userId,
+                        ]);
+                    }
 
                     // Marcar renglón como PENDIENTE
                     $stmtItemStatus = $this->db->prepare(
@@ -538,28 +556,28 @@ class DispatchOrder
             // Si la orden estaba en estado CONFIRMADO o DESPACHADO, los productos se descontaron físicamente del inventario.
             // Al eliminar la orden, devolvemos la mercancía físicamente a sus espacios correspondientes.
             if ($this->isDeductedStatus($order['status'])) {
+                $stmtMov = $this->db->prepare(
+                    "INSERT INTO stock_movements
+                        (product_id, warehouse_id, warehouse_space_id, type, reason, quantity, reference_id, notes, created_by)
+                     VALUES
+                        (:p_id, :w_id, :s_id, 'IN', 'CANCELACION_DESPACHO', :qty, :ref_id, :notes, :user_id)"
+                );
+
                 foreach ($order['items'] as $item) {
-                    $this->processItemRestore($warehouseId, $item);
-
                     $productId = (int) $item['productId'];
-                    $qty = (float) ($item['requestedQuantity'] ?? $item['quantityRequired'] ?? 0);
-                    $spaceId = $item['warehouseSpaceId'] !== null ? (int) $item['warehouseSpaceId'] : null;
+                    $restores = $this->processItemRestore($warehouseId, $item);
 
-                    $stmtMov = $this->db->prepare(
-                        "INSERT INTO stock_movements
-                            (product_id, warehouse_id, warehouse_space_id, type, reason, quantity, reference_id, notes, created_by)
-                         VALUES
-                            (:p_id, :w_id, :s_id, 'IN', 'CANCELACION_DESPACHO', :qty, :ref_id, :notes, :user_id)"
-                    );
-                    $stmtMov->execute([
-                        ':p_id'    => $productId,
-                        ':w_id'    => $warehouseId,
-                        ':s_id'    => $spaceId,
-                        ':qty'     => $qty,
-                        ':ref_id'  => $id,
-                        ':notes'   => "Restauración por eliminación de despacho {$order['code']}",
-                        ':user_id' => $order['createdBy'] ?? 1,
-                    ]);
+                    foreach ($restores as $res) {
+                        $stmtMov->execute([
+                            ':p_id'    => $productId,
+                            ':w_id'    => $warehouseId,
+                            ':s_id'    => $res['spaceId'],
+                            ':qty'     => $res['quantity'],
+                            ':ref_id'  => $id,
+                            ':notes'   => "Restauración por eliminación de despacho {$order['code']}",
+                            ':user_id' => $order['createdBy'] ?? 1,
+                        ]);
+                    }
                 }
             }
 
@@ -675,12 +693,13 @@ class DispatchOrder
         }
     }
 
-    private function processItemRestore(int $warehouseId, array $item): void
+    private function processItemRestore(int $warehouseId, array $item): array
     {
         $productId = (int) ($item['productId'] ?? ($item['product_id'] ?? 0));
         $totalQty = (float) ($item['requestedQuantity'] ?? ($item['quantityRequired'] ?? 0));
         $assignments = $item['warehouseSpaceAssignments'] ?? null;
 
+        $restores = [];
         $assignedTotal = 0.0;
         if (is_array($assignments) && !empty($assignments)) {
             foreach ($assignments as $a) {
@@ -689,6 +708,7 @@ class DispatchOrder
                 if ($q > 0) {
                     $this->restorePhysicalStock($warehouseId, $productId, $sId, $q);
                     $assignedTotal += $q;
+                    $restores[] = ['spaceId' => $sId, 'quantity' => $q];
                 }
             }
         }
@@ -698,7 +718,10 @@ class DispatchOrder
             $spaceIdVal = $item['warehouseSpaceId'] ?? ($item['warehouse_space_id'] ?? null);
             $fallbackSpaceId = (is_array($assignments) && !empty($assignments)) ? null : (!empty($spaceIdVal) ? (int) $spaceIdVal : null);
             $this->restorePhysicalStock($warehouseId, $productId, $fallbackSpaceId, $remaining);
+            $restores[] = ['spaceId' => $fallbackSpaceId, 'quantity' => $remaining];
         }
+
+        return $restores;
     }
 
     private function restorePhysicalStock(int $warehouseId, int $productId, ?int $spaceId, float $qty): void
@@ -733,7 +756,7 @@ class DispatchOrder
     }
 
 
-    private function processItemDeduction(int $warehouseId, array $item): void
+    private function processItemDeduction(int $warehouseId, array $item): array
     {
         $productId = (int) ($item['productId'] ?? ($item['product_id'] ?? 0));
         $totalQty = (float) ($item['requestedQuantity'] ?? ($item['quantityRequired'] ?? 0));
@@ -751,6 +774,7 @@ class DispatchOrder
             }
         }
 
+        $deductions = [];
         $assignedTotal = 0.0;
         if (is_array($assignments) && !empty($assignments)) {
             foreach ($assignments as $a) {
@@ -759,6 +783,7 @@ class DispatchOrder
                 if ($q > 0) {
                     $this->deductPhysicalStock($warehouseId, $productId, $sId, $q);
                     $assignedTotal += $q;
+                    $deductions[] = ['spaceId' => $sId, 'quantity' => $q];
                 }
             }
         }
@@ -768,7 +793,10 @@ class DispatchOrder
             $spaceIdVal = $item['warehouseSpaceId'] ?? ($item['warehouse_space_id'] ?? null);
             $fallbackSpaceId = (is_array($assignments) && !empty($assignments)) ? null : (!empty($spaceIdVal) ? (int) $spaceIdVal : null);
             $this->deductPhysicalStock($warehouseId, $productId, $fallbackSpaceId, $remaining);
+            $deductions[] = ['spaceId' => $fallbackSpaceId, 'quantity' => $remaining];
         }
+
+        return $deductions;
     }
 
 

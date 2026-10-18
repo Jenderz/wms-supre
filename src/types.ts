@@ -256,3 +256,155 @@ export interface DispatchOrder {
   dispatchedAt?: string;
 }
 
+// ============================================================
+// 4 NUEVOS MÓDULOS: STOCK MÍNIMO, TRANSFERENCIA, RDI Y AVERÍAS
+// ============================================================
+
+export interface SpaceDistributionItem {
+  warehouseSpaceId: string | null;
+  spaceName: string;
+  quantity: number;
+}
+
+export interface MinStockGeneralRow {
+  productId: string;
+  productCode: string;
+  productName: string;
+  imageUrl?: string;
+  categoryId?: string | null;
+  categoryName?: string;
+  warehouseId: string;
+  warehouseName: string;
+  currentStock: number;
+  minStock: number;
+  lastMovementAt?: string | null;
+  isArchived?: boolean;
+}
+
+export interface MinStockDispatchRow {
+  stockId: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  imageUrl?: string;
+  categoryId?: string | null;
+  categoryName?: string;
+  warehouseId: string;
+  warehouseName: string;
+  warehouseSpaceId: string;
+  warehouseSpaceName: string;
+  currentStock: number;
+  minStockDispatch: number;
+  lastMovementAt?: string | null;
+}
+
+export interface MinStockArchivedRow {
+  archiveId: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  imageUrl?: string;
+  categoryId?: string | null;
+  categoryName?: string;
+  warehouseId: string;
+  warehouseName: string;
+  currentStock: number;
+  minStock: number;
+  archivedAt: string;
+  archiveDeadlineAt: string;
+  archivedBy?: string | null;
+  archivedByName?: string;
+  isArchived: boolean;
+}
+
+export type TransferPickingStatus = 'DRAFT' | 'PENDING' | 'CONFORMED';
+
+export interface TransferPickingItem {
+  id?: string;
+  transferPickingId?: string;
+  productId: string;
+  productCode?: string;
+  productName?: string;
+  imageUrl?: string;
+  categoryName?: string;
+  quantity: number;
+  numberOfPackages?: number;
+  spacesDistribution: SpaceDistributionItem[];
+}
+
+export interface TransferPicking {
+  id: string;
+  lotNumber: string;
+  originWarehouseId: string;
+  originWarehouseName?: string;
+  destinationWarehouseId: string;
+  destinationWarehouseName?: string;
+  responsibleUserId: string;
+  responsibleUserName?: string;
+  description?: string;
+  status: TransferPickingStatus;
+  linkedPickingLotId?: string | null;
+  stockDeducted: boolean;
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  conformedAt?: string | null;
+  totalItems?: number;
+  totalPackages?: number;
+  totalQuantity?: number;
+  items?: TransferPickingItem[];
+}
+
+export type RdiType = 'FALTANTE' | 'SOBRANTE';
+export type RdiStatus = 'DRAFT' | 'PENDING' | 'CONFORMED';
+
+export interface RdiRecord {
+  id: string;
+  code: string;
+  warehouseId: string;
+  warehouseName?: string;
+  productId: string;
+  productCode?: string;
+  productName?: string;
+  imageUrl?: string;
+  rdiType: RdiType;
+  quantity: number;
+  spacesDistribution: SpaceDistributionItem[];
+  status: RdiStatus;
+  stockApplied: boolean;
+  responsibleUserId: string;
+  responsibleUserName?: string;
+  description?: string;
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  conformedAt?: string | null;
+  currentStock?: number;
+}
+
+export type DamageStatus = 'DRAFT' | 'PENDING' | 'CONFORMED';
+
+export interface DamageRecord {
+  id: string;
+  code: string;
+  warehouseId: string;
+  warehouseName?: string;
+  productId: string;
+  productCode?: string;
+  productName?: string;
+  imageUrl?: string;
+  inventoryCorrection: boolean;
+  quantity: number;
+  spacesDistribution?: SpaceDistributionItem[] | null;
+  status: DamageStatus;
+  stockApplied: boolean;
+  responsibleUserId: string;
+  responsibleUserName?: string;
+  description?: string;
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  conformedAt?: string | null;
+  currentStock?: number;
+}
+

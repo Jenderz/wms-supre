@@ -95,7 +95,8 @@ class DispatchController
 
         try {
             $userId = (int) ($authUser->user_id ?? 1);
-            $this->model->updateStatus((int) $id, (string) $status, $userId);
+            $items = isset($data['items']) && is_array($data['items']) ? $data['items'] : null;
+            $this->model->updateStatus((int) $id, (string) $status, $userId, $items);
             $updated = $this->model->findById((int) $id);
             Response::success($updated);
         } catch (Exception $e) {

@@ -179,10 +179,26 @@ const Infrastructure: React.FC = () => {
       setGroupModalError('Selecciona al menos un espacio.');
       return;
     }
-    // En modo standalone el warehouseId viene del selector del modal
-    const warehouseId = isStandaloneGroupModal
-      ? (groupModalWarehouseId || null)
-      : (selectedWarehouseFilter || null);
+    // Determinar warehouseId:
+    // - Modo standalone: obligatorio desde el selector del modal.
+    // - Modo selección: preferir el filtro de almacén activo; si no hay filtro,
+    //   inferirlo del primer espacio seleccionado.
+    let warehouseId: string | null = null;
+    if (isStandaloneGroupModal) {
+      if (!groupModalWarehouseId) {
+        setGroupModalError('Debes seleccionar un almacén para crear el grupo.');
+        return;
+      }
+      warehouseId = groupModalWarehouseId;
+    } else {
+      if (selectedWarehouseFilter) {
+        warehouseId = selectedWarehouseFilter;
+      } else if (selectedSpaceIds.size > 0) {
+        const firstId = [...selectedSpaceIds][0];
+        const firstSpace = warehouseSpaces.find(ws => ws.id === firstId);
+        warehouseId = firstSpace ? String(firstSpace.warehouseId) : null;
+      }
+    }
 
     try {
       if (editingGroupId) {
@@ -192,13 +208,16 @@ const Infrastructure: React.FC = () => {
           setGroupModalError('El nombre del grupo no puede estar vacío.');
           return;
         }
-        // Verificar nombre duplicado (excluyendo el propio grupo)
+        // Verificar nombre duplicado en el mismo almacén (excluyendo el propio grupo)
+        const editingGroup = spaceGroups.find(g => g.id === Number(editingGroupId));
+        const scopeWarehouseId = editingGroup?.warehouseId ?? null;
         const duplicado = spaceGroups.find(
           g => g.id !== Number(editingGroupId) &&
-               g.name.trim().toLowerCase() === trimmed.toLowerCase()
+               g.name.trim().toLowerCase() === trimmed.toLowerCase() &&
+               String(g.warehouseId ?? '') === String(scopeWarehouseId ?? '')
         );
         if (duplicado) {
-          setGroupModalError(`El grupo "${trimmed}" ya existe. Por favor elige un nombre diferente.`);
+          setGroupModalError(`El grupo "${trimmed}" ya existe en este almacén. Por favor elige un nombre diferente.`);
           return;
         }
         // Verificar que los espacios seleccionados no estén en otro grupo
@@ -214,7 +233,7 @@ const Infrastructure: React.FC = () => {
           setGroupModalError(`Los espacios "${spaceNames}" ya pertenecen al grupo "${ownerGroup?.name}". Un espacio solo puede pertenecer a un grupo.`);
           return;
         }
-        await updateGroup(editingGroupId, trimmed, [...selectedSpaceIds], warehouseId);
+        await updateGroup(editingGroupId, trimmed, [...selectedSpaceIds], scopeWarehouseId);
       } else if (groupModalMode === 'existing') {
         // Añadir los espacios seleccionados a un grupo existente
         if (!groupModalExistingId) {
@@ -249,12 +268,13 @@ const Infrastructure: React.FC = () => {
           setGroupModalError('El nombre del grupo no puede estar vacío.');
           return;
         }
-        // Verificar nombre duplicado
+        // Verificar nombre duplicado dentro del mismo almacén
         const duplicado = spaceGroups.find(
-          g => g.name.trim().toLowerCase() === trimmed.toLowerCase()
+          g => g.name.trim().toLowerCase() === trimmed.toLowerCase() &&
+               String(g.warehouseId ?? '') === String(warehouseId ?? '')
         );
         if (duplicado) {
-          setGroupModalError(`El grupo "${trimmed}" ya existe. Por favor elige un nombre diferente.`);
+          setGroupModalError(`El grupo "${trimmed}" ya existe en este almacén. Por favor elige un nombre diferente.`);
           return;
         }
         // Verificar que los espacios seleccionados no estén en otro grupo
@@ -706,8 +726,9 @@ const Infrastructure: React.FC = () => {
     : filteredSpaces;
 
   // Grupos de espacios filtrados al almacén activo (para el panel de chips)
+  // Usamos String() en ambas partes para evitar mismatch number vs string
   const visibleGroups = spaceGroups.filter(g =>
-    !selectedWarehouseFilter || g.warehouseId === selectedWarehouseFilter || g.warehouseId === ''
+    !selectedWarehouseFilter || String(g.warehouseId) === String(selectedWarehouseFilter)
   );
 
   // Agrupar espacios ordenados por almacén
@@ -909,7 +930,7 @@ const Infrastructure: React.FC = () => {
                 >
                   <option value="">Todos los grupos</option>
                   {spaceGroups
-                    .filter(g => !g.warehouseId || String(g.warehouseId) === String(selectedWarehouseFilter))
+                    .filter(g => String(g.warehouseId) === String(selectedWarehouseFilter))
                     .map(g => (
                       <option key={g.id} value={g.id}>{g.name} ({g.spaceIds.length} esp.)</option>
                     ))}
@@ -1674,18 +1695,22 @@ const Infrastructure: React.FC = () => {
             {/* Selector de almacén (solo en modo standalone) */}
             {isStandaloneGroupModal && (
               <div className="mb-5">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Almacén <span className="text-slate-400 font-normal">(opcional)</span></label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Almacén <span className="text-red-400 font-semibold">*</span>
+                </label>
                 <select
                   className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all"
                   value={groupModalWarehouseId}
                   onChange={(e) => setGroupModalWarehouseId(e.target.value)}
                 >
-                  <option value="">Sin almacén específico</option>
+                  <option value="">-- Selecciona un almacén --</option>
                   {warehouses.map(w => (
                     <option key={w.id} value={w.id}>{w.name}</option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-400 mt-1 ml-1">Asocia el grupo a un almacén para facilitar su filtrado.</p>
+                {!groupModalWarehouseId && (
+                  <p className="text-xs text-amber-600 mt-1 ml-1">Debes seleccionar un almacén para crear el grupo.</p>
+                )}
               </div>
             )}
 

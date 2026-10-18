@@ -50,6 +50,25 @@ class PickingLotController
         Response::json(['message' => 'Lote actualizado.']);
     }
 
+    public function updateStatus(string $id): void
+    {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['status'])) {
+            Response::error('status es requerido.', 400);
+            return;
+        }
+        if (!in_array($data['status'], ['DRAFT', 'PENDING'], true)) {
+            Response::error("Estado no permitido. Solo DRAFT o PENDING; use conformar para CONFORMED.", 400);
+            return;
+        }
+        try {
+            $this->model->updateStatus((int) $id, (string) $data['status']);
+            Response::json(['message' => 'Estado del lote actualizado correctamente.']);
+        } catch (\Throwable $e) {
+            Response::error($e->getMessage(), 400);
+        }
+    }
+
     /**
      * PATCH /picking-lots/{id}/conform
      * Al conformar, se incrementa el stock por cada ítem y se registra el movimiento.
@@ -92,6 +111,14 @@ class PickingLotController
             }
 
             $this->model->conform((int) $id, $authUser->user_id);
+
+            // Sincronización bidireccional: si proviene de una transferencia, marcarla como CONFORMED
+            $db->prepare(
+                "UPDATE transfer_pickings 
+                 SET status = 'CONFORMED', conformed_at = NOW() 
+                 WHERE linked_picking_lot_id = :lot_id AND status != 'CONFORMED'"
+            )->execute([':lot_id' => (int) $id]);
+
             $db->commit();
             Response::json(['message' => 'Lote conformado correctamente.']);
         } catch (\Throwable $e) {

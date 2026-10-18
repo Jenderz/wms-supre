@@ -144,11 +144,13 @@ const DispatchDetail: React.FC = () => {
     if (next === 'DESPACHADO' && !window.confirm('Al marcar como DESPACHADO no se pueden hacer más cambios. ¿Continuar?')) return;
     if (order.status === 'CONFIRMADO' && next === 'EN_PROCESO' && !window.confirm('Al revertir a EN PROCESO el stock descontado se devolverá al inventario y se reactivará la edición. ¿Desea continuar?')) return;
     
-    if (next === 'CONFIRMADO') {
+    if (next === 'CONFIRMADO' || next === 'DESPACHADO') {
       try {
         await saveDispatch(order);
       } catch (err: any) {
         console.error('Error al guardar asignaciones previas:', err);
+        alert(`No se pudo guardar la asignación de espacios: ${err?.message || err}. Corrige los datos antes de cambiar el estado.`);
+        return;
       }
     }
 
@@ -493,6 +495,19 @@ const DispatchDetail: React.FC = () => {
                   const siItems = order.items.filter(item => {
                     if (item.productId.startsWith('manual-')) return false;
                     if (item.spaceSelectionType === 'MANUAL') return false;
+                    if (isEditLocked) {
+                      if (item.warehouseSpaceAssignments && item.warehouseSpaceAssignments.length > 1) {
+                        return false;
+                      }
+                      const assignedSid = item.warehouseSpaceAssignments?.[0]?.warehouseSpaceId ?? item.warehouseSpaceId;
+                      if (assignedSid) {
+                        const ws = warehouseSpaces.find(w => String(w.id) === String(assignedSid));
+                        if (ws && ws.spaceUsageType !== 'Despachos') {
+                          return false;
+                        }
+                      }
+                      return true;
+                    }
                     const ev = evaluateSpacePreselection(item.productId, order.warehouseId, item.quantityRequired);
                     return ev && ev.isAutoSelected;
                   });
@@ -505,14 +520,16 @@ const DispatchDetail: React.FC = () => {
                     const sub = getSubcategoryName(p?.categoryId ?? '', p?.subcategoryId);
                     const ev  = evaluateSpacePreselection(item.productId, order.warehouseId, item.quantityRequired);
                     const allSpaces  = getAvailableSpacesForProduct(item.productId, order.warehouseId);
-                    const assignedSid = item.warehouseSpaceAssignments?.[0]?.warehouseSpaceId ?? ev?.autoPreselectedSpaceId ?? '';
+                    const assignedSid = item.warehouseSpaceAssignments?.[0]?.warehouseSpaceId ?? item.warehouseSpaceId ?? ev?.autoPreselectedSpaceId ?? '';
                     const bestSp  = allSpaces.find(s => String(s.warehouseSpaceId) === String(assignedSid)) || allSpaces[0];
                     const fallbackSp = warehouseSpaces.find(w => String(w.id) === String(assignedSid));
-                    const spaceName  = bestSp?.spaceName ?? fallbackSp?.name ?? ev?.autoPreselectedSpaceName ?? '—';
-                    const prox = Math.round(Number((bestSp?.proximity != null && bestSp.proximity !== 999) ? bestSp.proximity : 1));
-                    const spaceStockQty = bestSp
-                      ? bestSp.quantity
-                      : (stock.find(s => String(s.productId) === item.productId && String(s.warehouseId) === order.warehouseId && String(s.warehouseSpaceId) === String(assignedSid))?.quantity ?? getProductStock(item.productId, order.warehouseId));
+                    const spaceName  = fallbackSp?.name ?? bestSp?.spaceName ?? ev?.autoPreselectedSpaceName ?? '—';
+                    const prox = Math.round(Number((bestSp?.proximity != null && bestSp.proximity !== 999) ? bestSp.proximity : (fallbackSp?.proximity ?? 1)));
+                    const spaceStockQty = isEditLocked
+                      ? item.quantityRequired
+                      : (bestSp
+                        ? bestSp.quantity
+                        : (stock.find(s => String(s.productId) === item.productId && String(s.warehouseId) === order.warehouseId && String(s.warehouseSpaceId) === String(assignedSid))?.quantity ?? getProductStock(item.productId, order.warehouseId)));
                     return (
                       <TableRow key={item.id} className="hover:bg-emerald-50/30 text-xs text-slate-800 border-l-4 border-emerald-400">
                         <TableCell className="font-mono font-bold text-slate-600">{p?.code ?? item.productId}</TableCell>
@@ -567,6 +584,19 @@ const DispatchDetail: React.FC = () => {
                   const noItems = order.items.filter(item => {
                     if (item.productId.startsWith('manual-')) return true;
                     if (item.spaceSelectionType === 'MANUAL') return true;
+                    if (isEditLocked) {
+                      if (item.warehouseSpaceAssignments && item.warehouseSpaceAssignments.length > 1) {
+                        return true;
+                      }
+                      const assignedSid = item.warehouseSpaceAssignments?.[0]?.warehouseSpaceId ?? item.warehouseSpaceId;
+                      if (assignedSid) {
+                        const ws = warehouseSpaces.find(w => String(w.id) === String(assignedSid));
+                        if (ws && ws.spaceUsageType !== 'Despachos') {
+                          return true;
+                        }
+                      }
+                      return false;
+                    }
                     const ev = evaluateSpacePreselection(item.productId, order.warehouseId, item.quantityRequired);
                     return !ev || !ev.isAutoSelected;
                   });
@@ -583,7 +613,43 @@ const DispatchDetail: React.FC = () => {
                     const sub     = isManual ? '-' : getSubcategoryName(p?.categoryId ?? '', p?.subcategoryId);
                     const ev      = !isManual ? evaluateSpacePreselection(item.productId, order.warehouseId, item.quantityRequired) : null;
                     const canGoBackToSi = isManualSel && !isManual && ev && ev.isAutoSelected;
-                    const availSpaces = (!isManual && order.warehouseId) ? getAvailableSpacesForProduct(item.productId, order.warehouseId) : [];
+                    
+                    // Espacios disponibles base
+                    let availSpaces = (!isManual && order.warehouseId) ? getAvailableSpacesForProduct(item.productId, order.warehouseId) : [];
+
+                    // Integridad histórica / persistencia: asegurar que cualquier espacio con asignación aparezca
+                    if (item.warehouseSpaceAssignments && item.warehouseSpaceAssignments.length > 0) {
+                      item.warehouseSpaceAssignments.forEach(asgn => {
+                        if (asgn.quantity > 0 && !availSpaces.some(sp => String(sp.warehouseSpaceId) === String(asgn.warehouseSpaceId))) {
+                          const ws = warehouseSpaces.find(w => String(w.id) === String(asgn.warehouseSpaceId));
+                          const currentStockEntry = stock.find(s =>
+                            String(s.productId) === item.productId &&
+                            String(s.warehouseId) === order.warehouseId &&
+                            String(s.warehouseSpaceId) === String(asgn.warehouseSpaceId)
+                          );
+                          availSpaces.push({
+                            stockId: currentStockEntry ? currentStockEntry.id : 0,
+                            warehouseSpaceId: String(asgn.warehouseSpaceId),
+                            spaceName: ws ? ws.name : `Espacio #${asgn.warehouseSpaceId}`,
+                            spaceUsageType: (ws?.spaceUsageType as any) ?? 'Almacenamiento',
+                            proximity: ws?.proximity ?? 1,
+                            quantity: currentStockEntry ? Number(currentStockEntry.quantity) : 0,
+                            needsRestock: false,
+                          });
+                        }
+                      });
+                    }
+
+                    // En modo bloqueado/histórico, si hay asignaciones guardadas, filtramos para mostrar únicamente los espacios despachados
+                    if (isEditLocked && item.warehouseSpaceAssignments && item.warehouseSpaceAssignments.length > 0) {
+                      const assignedIds = new Set(
+                        item.warehouseSpaceAssignments.filter(a => a.quantity > 0).map(a => String(a.warehouseSpaceId))
+                      );
+                      if (assignedIds.size > 0) {
+                        availSpaces = availSpaces.filter(sp => assignedIds.has(String(sp.warehouseSpaceId)));
+                      }
+                    }
+
                     const totalAssigned = (item.warehouseSpaceAssignments || []).reduce((acc, a) => acc + a.quantity, 0);
                     return (
                       <TableRow key={item.id} className="hover:bg-amber-50/30 text-xs text-slate-800 border-l-4 border-amber-400 align-top">
@@ -634,11 +700,16 @@ const DispatchDetail: React.FC = () => {
                         {/* Stock */}
                         <TableCell className="p-0">
                           <div className="flex flex-col">
-                            {availSpaces.map(sp => (
-                              <div key={sp.warehouseSpaceId} className="h-10 flex items-center justify-center font-bold text-slate-700 text-xs border-b last:border-0 border-slate-100">
-                                {sp.quantity}
-                              </div>
-                            ))}
+                            {availSpaces.map(sp => {
+                              const assigned = item.warehouseSpaceAssignments?.find(a => a.warehouseSpaceId === sp.warehouseSpaceId);
+                              const val = assigned?.quantity ?? 0;
+                              const displayStock = isEditLocked ? (sp.quantity + val) : sp.quantity;
+                              return (
+                                <div key={sp.warehouseSpaceId} className="h-10 flex items-center justify-center font-bold text-slate-700 text-xs border-b last:border-0 border-slate-100">
+                                  {displayStock}
+                                </div>
+                              );
+                            })}
                             {availSpaces.length === 0 && <div className="h-10 flex items-center justify-center text-slate-300 text-xs">—</div>}
                           </div>
                         </TableCell>
@@ -686,7 +757,6 @@ const DispatchDetail: React.FC = () => {
                               return (
                                 <div key={sp.warehouseSpaceId} className="h-10 flex items-center justify-center border-b last:border-0 border-slate-100 px-2">
                                   {sp.needsRestock ? (
-                                    // OBS 1.4: Espacio tipo Despachos con stock 0 — mostrar badge informativo
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-100 border border-orange-300 text-orange-700 text-[10px] font-bold">
                                       ⚠️ Reabastecer
                                     </span>
@@ -697,7 +767,9 @@ const DispatchDetail: React.FC = () => {
                                       className="w-16 text-center border border-amber-300 rounded-lg py-0.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 bg-amber-50"
                                     />
                                   ) : (
-                                    <span className="font-bold text-xs">{val || 0}</span>
+                                    <span className="inline-flex items-center justify-center font-bold text-xs bg-emerald-50 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-md">
+                                      {val || 0}
+                                    </span>
                                   )}
                                 </div>
                               );

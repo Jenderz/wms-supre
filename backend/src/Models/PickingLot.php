@@ -59,7 +59,11 @@ class PickingLot
 
     public function create(array $data): int
     {
-        $this->db->beginTransaction();
+        $ownsTransaction = false;
+        if (!$this->db->inTransaction()) {
+            $this->db->beginTransaction();
+            $ownsTransaction = true;
+        }
         try {
             $stmt = $this->db->prepare(
                 "INSERT INTO picking_lots (lot_number, warehouse_id, description, status, created_by)
@@ -75,17 +79,41 @@ class PickingLot
             $id = (int) $this->db->lastInsertId();
 
             $this->syncItems($id, $data['items'] ?? []);
-            $this->db->commit();
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
             return $id;
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
 
     public function update(int $id, array $data): void
     {
-        $this->db->beginTransaction();
+        $existing = $this->findById($id);
+        if (!$existing) {
+            throw new \Exception("Lote no encontrado.");
+        }
+
+        // Un lote conformado ya ingresó stock: no se puede editar ni revertir vía update()
+        if ($existing['status'] === 'CONFORMED') {
+            throw new \Exception("No se puede editar un lote ya conformado.");
+        }
+
+        // CONFORMED solo es alcanzable vía conform() (mueve stock y registra movimientos).
+        $newStatus = $data['status'] ?? $existing['status'];
+        if (!in_array($newStatus, ['DRAFT', 'PENDING'], true)) {
+            throw new \Exception("Estado no permitido '$newStatus'. Solo DRAFT o PENDING; use conformar para CONFORMED.");
+        }
+
+        $ownsTransaction = false;
+        if (!$this->db->inTransaction()) {
+            $this->db->beginTransaction();
+            $ownsTransaction = true;
+        }
         try {
             $stmt = $this->db->prepare(
                 "UPDATE picking_lots
@@ -95,17 +123,44 @@ class PickingLot
             );
             $stmt->execute([
                 ':id'           => $id,
-                ':lot_number'   => $data['lotNumber'],
-                ':warehouse_id' => $data['warehouseId'],
-                ':description'  => $data['description'] ?? null,
-                ':status'       => $data['status'],
+                ':lot_number'   => $data['lotNumber'] ?? $existing['lotNumber'],
+                ':warehouse_id' => $data['warehouseId'] ?? $existing['warehouseId'],
+                ':description'  => array_key_exists('description', $data) ? $data['description'] : ($existing['description'] ?? null),
+                ':status'       => $newStatus,
             ]);
-            $this->syncItems($id, $data['items'] ?? []);
-            $this->db->commit();
+            if (array_key_exists('items', $data)) {
+                $this->syncItems($id, $data['items'] ?? []);
+            }
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
+    }
+
+    public function updateStatus(int $id, string $status): void
+    {
+        $existing = $this->findById($id);
+        if (!$existing) {
+            throw new \Exception("Lote no encontrado.");
+        }
+
+        // Un lote conformado ya ingresó stock: no se puede revertir sin reintegrar el inventario
+        if ($existing['status'] === 'CONFORMED') {
+            throw new \Exception("No se puede modificar el estado de un lote ya conformado.");
+        }
+
+        // CONFORMED solo es alcanzable vía conform() (mueve stock y registra movimientos).
+        if (!in_array($status, ['DRAFT', 'PENDING'], true)) {
+            throw new \Exception("Estado no permitido '$status'. Solo DRAFT o PENDING; use conformar para CONFORMED.");
+        }
+
+        $stmt = $this->db->prepare("UPDATE picking_lots SET status=:status WHERE id=:id");
+        $stmt->execute([':id' => $id, ':status' => $status]);
     }
 
     public function conform(int $id, int $userId): void

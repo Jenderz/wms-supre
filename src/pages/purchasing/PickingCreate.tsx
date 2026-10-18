@@ -37,8 +37,11 @@ export const PickingCreate: React.FC = () => {
     pickingLots,
     stock,
     savePickingLot,
+    conformPickingLot,
     getCategory,
   } = usePurchasing();
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Estados del Formulario
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
@@ -243,8 +246,62 @@ export const PickingCreate: React.FC = () => {
       createdBy: currentLot?.createdBy || user?.id || 'unknown'
     };
 
-    await savePickingLot(lot);
-    navigate('/purchasing/list');
+    setIsSubmitting(true);
+    try {
+      await savePickingLot(lot);
+      navigate('/purchasing/list');
+    } catch (e: any) {
+      alert(`Error al guardar el lote: ${e?.message || e}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Guardar y Conformar Inmediatamente
+  const handleSaveAndConform = async () => {
+    if (!selectedStoreId) {
+      alert('Por favor, seleccione un Almacén destino.');
+      return;
+    }
+    if (items.length === 0) {
+      alert('Agregue al menos un producto a la lista de picking.');
+      return;
+    }
+    if (!window.confirm('¿Guardar y conformar este lote de inmediato?\n\nLa mercancía ingresará al inventario del almacén de forma definitiva.')) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const currentLot = editLotId ? pickingLots.find(l => String(l.id) === String(editLotId)) : null;
+
+      const lot: PickingLot = {
+        id: editLotId || undefined,
+        lotNumber: currentLot?.lotNumber || `LOT-${Math.floor(10000 + Math.random() * 90000)}`,
+        warehouseId: selectedStoreId,
+        description: lotDescription,
+        items: items.map(it => ({
+          ...it,
+          productId: String(it.productId),
+          quantityToEnter: Number(it.quantityToEnter) || 1,
+          numberOfPackages: Number(it.numberOfPackages) || 1,
+          packagesConfig: it.packagesConfig || [{ packageIndex: 1, quantity: Number(it.quantityToEnter) || 1 }],
+        })),
+        status: 'PENDING',
+        createdAt: currentLot?.createdAt || new Date().toISOString(),
+        createdBy: currentLot?.createdBy || user?.id || 'unknown'
+      };
+
+      const savedId = await savePickingLot(lot);
+      if (savedId) {
+        await conformPickingLot(savedId);
+      }
+      navigate('/purchasing/list');
+    } catch (e: any) {
+      alert(`Error al guardar y conformar el lote: ${e?.message || e}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Filtro de productos para búsqueda manual
@@ -594,6 +651,7 @@ export const PickingCreate: React.FC = () => {
               <Button
                 type="button"
                 variant="secondary"
+                disabled={isSubmitting}
                 onClick={() => handleSave('DRAFT')}
                 className="w-full sm:w-auto text-slate-700 bg-slate-100 hover:bg-slate-200"
               >
@@ -602,12 +660,24 @@ export const PickingCreate: React.FC = () => {
               </Button>
               <Button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => handleSave('PENDING')}
                 className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
               >
                 <Send className="w-4 h-4 mr-2" />
                 Enviar Picking
               </Button>
+              {user?.role === 'ADMIN' && (
+                <Button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={handleSaveAndConform}
+                  className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Guardar y Conformar
+                </Button>
+              )}
             </div>
           </div>
         </div>
