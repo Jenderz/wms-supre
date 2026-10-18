@@ -4,10 +4,16 @@ declare(strict_types=1);
 // ============================================================
 // CARGA DEL AUTOLOADER Y VARIABLES DE ENTORNO
 // ============================================================
-require_once __DIR__ . '/../vendor/autoload.php';
+// Soporte flexible de vendor según la estructura (api/public/ o api/ directa)
+if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
+    require_once __DIR__ . '/../vendor/autoload.php';
+} elseif (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+}
 
-if (file_exists(__DIR__ . '/../.env')) {
-    $dotenv = \Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
+$envDir = file_exists(__DIR__ . '/../.env') ? __DIR__ . '/..' : (file_exists(__DIR__ . '/.env') ? __DIR__ : null);
+if ($envDir) {
+    $dotenv = \Dotenv\Dotenv::createImmutable($envDir);
     $dotenv->safeLoad();
 }
 
@@ -31,14 +37,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // ============================================================
 // ENRUTADOR MANUAL
 // ============================================================
-$uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '/';
 $method = $_SERVER['REQUEST_METHOD'];
 
-// Si la petición viene con el prefijo /api (ej. https://wms.supreparts.com/api/auth/login),
-// removemos /api para que coincida con las rutas internas (/auth/login, /products, etc.)
+// Normalizar: remover prefijos como /api o /index.php para que coincidan con las rutas internas
+$uri = preg_replace('#^/index\.php#', '', $uri);
+
 if (str_starts_with($uri, '/api/')) {
-    $uri = substr($uri, 4);
+    $uri = substr($uri, 4); // deja '/auth/login'
 } elseif ($uri === '/api') {
+    $uri = '/';
+}
+
+$uri = preg_replace('#^/index\.php#', '', $uri);
+if ($uri === '') {
     $uri = '/';
 }
 
