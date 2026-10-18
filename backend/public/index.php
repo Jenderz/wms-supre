@@ -34,13 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
 
-// Con subdominio propio (api.supreparts.com) no hay prefijo /api.
-// Las rutas llegan directamente como: /auth/login, /products, etc.
-// Si en el futuro usas una subcarpeta, descomenta y ajusta:
-// $basePath = '';
-// if ($basePath !== '' && str_starts_with($uri, $basePath)) {
-//     $uri = substr($uri, strlen($basePath));
-// }
+// Si la petición viene con el prefijo /api (ej. https://wms.supreparts.com/api/auth/login),
+// removemos /api para que coincida con las rutas internas (/auth/login, /products, etc.)
+if (str_starts_with($uri, '/api/')) {
+    $uri = substr($uri, 4);
+} elseif ($uri === '/api') {
+    $uri = '/';
+}
 
 // Inicializar controladores (lazy si se necesitan)
 use App\Controllers\AuthController;
