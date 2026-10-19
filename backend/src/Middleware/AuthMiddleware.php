@@ -16,15 +16,19 @@ class AuthMiddleware
      */
     public static function verify(): object
     {
-        $headers = getallheaders();
-        $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? null;
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $authHeader = $headers['Authorization'] 
+            ?? $headers['authorization'] 
+            ?? $_SERVER['HTTP_AUTHORIZATION'] 
+            ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] 
+            ?? null;
 
         if (!$authHeader || !str_starts_with($authHeader, 'Bearer ')) {
             throw new UnauthorizedException('Token de autenticación requerido.');
         }
 
         $token = substr($authHeader, 7);
-        $secret = $_ENV['JWT_SECRET'] ?? 'fallback_secret';
+        $secret = $_ENV['JWT_SECRET'] ?? $_SERVER['JWT_SECRET'] ?? 'fallback_secret';
 
         try {
             $decoded = JWT::decode($token, new Key($secret, 'HS256'));

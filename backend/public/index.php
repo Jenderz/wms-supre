@@ -54,6 +54,11 @@ if ($uri === '') {
     $uri = '/';
 }
 
+// Remover slash final para evitar 404 en rutas como /products/ o /auth/login/
+if ($uri !== '/' && str_ends_with($uri, '/')) {
+    $uri = rtrim($uri, '/');
+}
+
 // Inicializar controladores (lazy si se necesitan)
 use App\Controllers\AuthController;
 use App\Controllers\UserController;
@@ -81,6 +86,16 @@ use App\Helpers\Response;
 // DEFINICIÓN DE RUTAS
 // ============================================================
 try {
+    // --- Health check / Raíz pública ---
+    if (($uri === '/' || $uri === '/health') && $method === 'GET') {
+        Response::json([
+            'status' => 'online',
+            'service' => 'SUPRE WMS API',
+            'version' => '1.0'
+        ]);
+        exit;
+    }
+
     // --- Auth (pública) ---
     if ($uri === '/auth/login' && $method === 'POST') {
         (new AuthController())->login();
